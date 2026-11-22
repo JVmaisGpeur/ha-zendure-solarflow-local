@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 DOMAIN = "zendure_local"
 MANUFACTURER = "Zendure"
 
@@ -53,3 +55,18 @@ AC_MODE_CHARGE = 1  # entrée AC : la batterie se charge sur le réseau
 AC_MODE_DISCHARGE = 2  # sortie AC : la batterie alimente la maison
 
 PLATFORMS = ["binary_sensor", "button", "number", "select", "sensor", "switch"]
+
+
+def pretty_model(name: str | None) -> str:
+    """« solarFlow3000MixAC+ » → « SolarFlow 3000 Mix AC+ »."""
+    if not name:
+        return "SolarFlow"
+    rest = re.sub(r"^zendure\s*", "", str(name), flags=re.I)
+    head = ""
+    m = re.match(r"^solar\s*flow", rest, flags=re.I)
+    if m:
+        head, rest = "SolarFlow", rest[m.end():]
+    rest = re.sub(r"([a-z])([A-Z0-9])", r"\1 \2", rest)
+    rest = re.sub(r"([0-9])([A-Za-z])", r"\1 \2", rest)
+    rest = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", rest).strip()
+    return " ".join(p for p in (head, rest) if p)

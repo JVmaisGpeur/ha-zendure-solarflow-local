@@ -46,11 +46,11 @@ show_flow: true
 ```
 
 Ce qu'elle affiche :
-- **Batterie** : niveau dans une batterie « liquide » animée, avec la limite du SOC minimum en pointillés rouges. On voit aussi l'énergie stockée, l'état (veille, charge, décharge), la puissance consommée par la maison et celle échangée avec le réseau.
+- **Batterie** : niveau dans une batterie « liquide » animée, avec la limite du SOC minimum en pointillés rouges, l'énergie stockée et l'état (veille, charge, décharge). Les puissances Maison et Réseau sont dans le schéma des flux ; si le schéma est désactivé (`show_flow: false`), elles s'affichent en tuiles sous la batterie.
 - **Courbe des dernières 24 h** du niveau de charge.
 - **Disponible / Capacité / Cycles / Rendement**. Les cycles et le rendement sont calculés à partir des compteurs d'énergie de l'intégration, depuis son installation.
 - **Flux d'énergie** : Réseau, Solaire, Batterie et jusqu'à 5 appareils autour de la Maison. Des points animés montrent le sens de circulation de l'énergie, et l'anneau de la Maison indique la part de chaque source.
-- **Pilotage** : liste déroulante du mode de fonctionnement, cases pour les niveaux de charge **minimum** et **maximum**, et curseur de consigne en mode manuel.
+- **Pilotage** : liste déroulante du mode de fonctionnement et cases pour les niveaux de charge **minimum** et **maximum**. En **Puissance manuelle**, deux cases **Charge manuelle** / **Décharge manuelle** et une saisie de la puissance en W (envoyée à la validation), plus un bouton pour mettre au repos.
 
 Un appui sur un élément ouvre son historique. La carte suit le thème clair ou sombre et la langue de Home Assistant (français ou anglais).
 
@@ -125,6 +125,7 @@ L'attribut `statut` du sélecteur indique ce que fait la batterie (stable, charg
 - Pendant la régulation, la batterie est relue toutes les 2 s, et juste après chaque commande.
 - La batterie met quelques secondes à atteindre une nouvelle consigne. Pendant ce temps, la régulation ne la pousse pas plus loin dans le même sens, ce qui évite les dépassements et les oscillations. Une correction en sens inverse, par exemple si la consommation chute, part immédiatement.
 - En simulation, après un appel de charge de 1500 W, l'équilibre au compteur revient en 3 à 4 s.
+- **Affinage fin** : la zone morte évite de courir après les fluctuations, mais un petit écart **qui dure** (par exemple 16 W soutirés en permanence) n'est pas du bruit. La régulation suit la moyenne de l'écart et, après 12 s sans commande, le corrige par petits pas de 10 W. En simulation, l'écart moyen au compteur tombe à environ 2 W.
 
 Réglages : **cible au compteur** (0 W), **zone morte** (25 W), **délai minimum entre deux calculs** (1 s).
 

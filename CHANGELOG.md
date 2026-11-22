@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.2.0
+
+- **Mode manuel dans la carte** : cases **Charge manuelle** / **Décharge manuelle** et saisie de la puissance en W (plus de curseur), bouton **Mettre au repos**
+- **Affinage fin de la régulation** : un petit écart qui dure au compteur est corrigé même s'il est dans la zone morte, pour viser vraiment 0 W
+- **Régulation plus stable** : la batterie n'est considérée comme « arrivée » à sa consigne qu'après une lecture faite après la commande, avec une tolérance serrée. En simulation, 4 commandes au lieu de 36 à consommation stable, et plus d'oscillation
+- Carte : tuiles Maison et Réseau retirées (en double avec le schéma des flux), sauf si le schéma est désactivé
+- Nom du modèle mis en forme (« solarFlow3000MixAC+ » → « SolarFlow 3000 Mix AC+ ») dans la carte et dans le nom de l'appareil
+
+**Après la mise à jour** : appuie une fois sur **Réinitialiser l'apprentissage**, puis sur **Mesurer la réponse de la batterie**. Ce qui a été appris avec l'ancienne logique de régulation pourrait fausser le démarrage.
+
 ## v1.1.0
 
 - **Réglage automatique de la régulation** : l'intégration apprend le rythme du compteur, son bruit, le délai et le temps de réponse de la batterie, et ajuste le gain, la zone morte, le délai entre deux calculs et le temps d'attente anti-oscillation

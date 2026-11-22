@@ -65,6 +65,10 @@ STEADY_TOLERANCE = 120.0  # W : batterie considérée comme stable autour de sa 
 STEP_TEST_W = 300.0  # W : échelon du bouton « Mesurer la réponse »
 STEP_TEST_S = 12  # s : durée d'observation de l'échelon
 STORE_VERSION = 1
+# Affinage fin : un petit écart qui dure n'est pas du bruit, on le corrige quand même
+TRIM_DELAY = 12.0  # s de calme (sans commande) avant d'affiner
+TRIM_MIN = 5.0  # W : en dessous, l'écart moyen est négligeable
+TRIM_ALPHA = 0.15  # lissage de la moyenne glissante de l'écart
 SAFETY_TICK = timedelta(seconds=5)  # recalcul de secours si le capteur ne bouge pas
 WATT_UNITS = {"W": 1.0, "kW": 1000.0}
 REGULATED_MODES = (MODE_SMART, MODE_SMART_DISCHARGE, MODE_SMART_CHARGE, MODE_SOLAR, MODE_GRID_CHARGE)
@@ -94,6 +98,8 @@ class ZendureRegulator:
         self._lock = asyncio.Lock()
         self._listeners: list[Callable[[], None]] = []
         self._last_error = 0.0
+        self._err_avg: float | None = None
+        self._last_read = 0.0  # instant de la dernière lecture de la batterie
         self.testing = False
         # Réglage automatique (activable / désactivable par un interrupteur)
         self.auto = True
@@ -144,6 +150,7 @@ class ZendureRegulator:
     @callback
     def _on_battery(self) -> None:
         if self.coordinator.last_update_success:
+            self._last_read = time.monotonic()
             self.tuner.on_battery(time.monotonic(), self.coordinator.battery_ac_power)
             self._save_later()
 
@@ -345,23 +352,40 @@ class ZendureRegulator:
 
             error = grid - target
             self._last_error = error
+            sp = c.power_setpoint
+            trim = False
             if abs(error) < self.deadband:
-                self.status = "stable"
-                self._notify()
-                return
+                # Dans la zone morte : on suit la moyenne de l'écart. Le bruit se compense,
+                # un écart réel (ex. 16 W soutirés en permanence) reste et sera corrigé.
+                self._err_avg = error if self._err_avg is None else self._err_avg + TRIM_ALPHA * (error - self._err_avg)
+                if abs(self._err_avg) < TRIM_MIN or time.monotonic() - self._last_cmd < TRIM_DELAY:
+                    self.status = "stable"
+                    self._notify()
+                    return
+                step = round(self._err_avg / 10) * 10 or (10 if self._err_avg > 0 else -10)
+                new = max(lo, min(hi, sp + step))
+                self._err_avg = None
+                if new == sp:
+                    self.status = "stable"
+                    self._notify()
+                    return
+                trim = True
+            else:
+                self._err_avg = None
 
             # La batterie met quelques secondes à atteindre une consigne. Tant qu'elle
             # n'y est pas, on ne pousse pas plus loin dans le même sens (sinon :
             # dépassement puis oscillations). Une correction en sens inverse passe
             # tout de suite (ex. la conso chute pendant une montée en puissance).
-            sp = c.power_setpoint
             measured = c.battery_ac_power
-            settled = (
+            # « Arrivée » seulement si une lecture faite APRÈS la commande le confirme
+            settled = trim or (
                 measured is None
-                or abs(measured - sp) <= max(50.0, 0.15 * abs(sp))
                 or time.monotonic() - self._last_cmd > self.settle_timeout
+                or (self._last_read > self._last_cmd and abs(measured - sp) <= max(40.0, 0.05 * abs(sp)))
             )
-            new = max(lo, min(hi, sp + self.gain * error))
+            if not trim:
+                new = max(lo, min(hi, sp + self.gain * error))
             if not settled and (new - sp) * (sp - measured) > 0:
                 self.status = "ajustement en cours"
                 self._notify()

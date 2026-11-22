@@ -49,12 +49,12 @@ from .const import (
     DOMAIN,
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
+    pretty_model,
 )
 
 
 def _title(report: dict[str, Any]) -> str:
-    product = report.get("product") or "SolarFlow"
-    return f"Zendure {product}"
+    return f"Zendure {pretty_model(report.get('product'))}"
 
 
 class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
