@@ -1,0 +1,189 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Batterie Zendure (locale)",
+        "description": "Adresse IP de la batterie. L'API locale doit être activée dans l'app Zendure (paramètre « HEMS » / API locale).",
+        "data": {
+          "host": "Adresse IP"
+        }
+      },
+      "zeroconf_confirm": {
+        "title": "Batterie Zendure trouvée",
+        "description": "Ajouter {name} ({host}) à Home Assistant ?"
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible de joindre la batterie. Vérifie l'IP et que l'API locale est activée.",
+      "no_serial": "La batterie n'a pas renvoyé de numéro de série."
+    },
+    "abort": {
+      "already_configured": "Cette batterie est déjà configurée.",
+      "cannot_connect": "Impossible de joindre la batterie.",
+      "no_serial": "La batterie n'a pas renvoyé de numéro de série."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "data": {
+          "scan_interval": "Intervalle de lecture (s)",
+          "max_power": "Puissance max charge/décharge (W)",
+          "use_ram": "Écrire les commandes de puissance en RAM (préserve la mémoire flash)",
+          "grid_sensor": "Capteur réseau (ex. phase A du Shelly Pro 3EM)",
+          "invert_grid": "Inverser le signe du capteur (cocher si positif = injection)",
+          "target_power": "Cible au compteur (W, 0 = zéro injection)",
+          "deadband": "Zone morte (W)",
+          "min_interval": "Délai entre deux commandes (s)",
+          "import_limit": "Soutirage max au compteur en « Charge intelligente » (W)"
+        },
+        "description": "Les modes intelligents ont besoin d'un capteur qui mesure ce qui entre (positif) ou sort (négatif) du tableau électrique, par ex. la phase A du Shelly Pro 3EM."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "electric_level": {
+        "name": "Niveau de charge"
+      },
+      "battery_power": {
+        "name": "Puissance batterie"
+      },
+      "charge_power": {
+        "name": "Puissance de charge"
+      },
+      "discharge_power": {
+        "name": "Puissance de décharge"
+      },
+      "output_home_power": {
+        "name": "Puissance vers la maison"
+      },
+      "grid_input_power": {
+        "name": "Puissance prise au réseau"
+      },
+      "solar_input_power": {
+        "name": "Puissance solaire entrante"
+      },
+      "grid_off_power": {
+        "name": "Puissance prise de secours"
+      },
+      "remain_out_time": {
+        "name": "Autonomie restante"
+      },
+      "pack_state": {
+        "name": "État",
+        "state": {
+          "standby": "Repos",
+          "charging": "Charge",
+          "discharging": "Décharge"
+        }
+      },
+      "temperature": {
+        "name": "Température onduleur"
+      },
+      "pack_num": {
+        "name": "Nombre de packs"
+      },
+      "rssi": {
+        "name": "Signal Wi-Fi"
+      },
+      "fault_level": {
+        "name": "Niveau de défaut"
+      },
+      "pack_soc": {
+        "name": "Pack {pack} niveau"
+      },
+      "pack_temperature": {
+        "name": "Pack {pack} température"
+      },
+      "pack_voltage": {
+        "name": "Pack {pack} tension"
+      },
+      "pack_current": {
+        "name": "Pack {pack} courant"
+      },
+      "pack_cell_max": {
+        "name": "Pack {pack} cellule max"
+      },
+      "pack_cell_min": {
+        "name": "Pack {pack} cellule min"
+      },
+      "energy_charged": {
+        "name": "Énergie chargée"
+      },
+      "energy_discharged": {
+        "name": "Énergie déchargée"
+      },
+      "energy_output_home": {
+        "name": "Énergie fournie à la maison"
+      },
+      "energy_grid_input": {
+        "name": "Énergie prise au réseau"
+      }
+    },
+    "number": {
+      "power_setpoint": {
+        "name": "Consigne de puissance"
+      },
+      "input_limit": {
+        "name": "Limite de charge AC"
+      },
+      "output_limit": {
+        "name": "Limite de sortie"
+      },
+      "soc_set": {
+        "name": "SOC maximum"
+      },
+      "min_soc": {
+        "name": "SOC minimum"
+      }
+    },
+    "select": {
+      "ac_mode": {
+        "name": "Mode AC",
+        "state": {
+          "charge": "Charge",
+          "discharge": "Décharge"
+        }
+      },
+      "grid_off_mode": {
+        "name": "Mode hors-réseau",
+        "state": {
+          "standard": "Standard",
+          "economic": "Économique",
+          "closed": "Désactivé"
+        }
+      },
+      "operating_mode": {
+        "name": "Mode de fonctionnement",
+        "state": {
+          "off": "Arrêt",
+          "manual": "Puissance manuelle",
+          "smart": "Couplage intelligent",
+          "smart_discharge": "Décharge intelligente",
+          "smart_charge": "Charge intelligente",
+          "solar": "Stocker le solaire"
+        }
+      }
+    },
+    "binary_sensor": {
+      "error": {
+        "name": "Défaut"
+      },
+      "heating": {
+        "name": "Chauffage batterie"
+      },
+      "grid": {
+        "name": "Réseau connecté"
+      },
+      "bypass": {
+        "name": "By-pass"
+      },
+      "reverse_flow": {
+        "name": "Reflux réseau"
+      }
+    }
+  }
+}

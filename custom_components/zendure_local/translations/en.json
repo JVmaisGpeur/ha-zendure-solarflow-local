@@ -1,0 +1,189 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Zendure battery (local)",
+        "description": "Battery IP address. The local API must be enabled in the Zendure app (HEMS / local API setting).",
+        "data": {
+          "host": "IP address"
+        }
+      },
+      "zeroconf_confirm": {
+        "title": "Zendure battery found",
+        "description": "Add {name} ({host}) to Home Assistant?"
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach the battery. Check the IP and that the local API is enabled.",
+      "no_serial": "The battery did not return a serial number."
+    },
+    "abort": {
+      "already_configured": "This battery is already configured.",
+      "cannot_connect": "Cannot reach the battery.",
+      "no_serial": "The battery did not return a serial number."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "data": {
+          "scan_interval": "Polling interval (s)",
+          "max_power": "Max charge/discharge power (W)",
+          "use_ram": "Write power commands to RAM (saves flash wear)",
+          "grid_sensor": "Grid power sensor (e.g. Shelly Pro 3EM phase A)",
+          "invert_grid": "Invert sensor sign (tick if positive = export)",
+          "target_power": "Grid target (W, 0 = zero export)",
+          "deadband": "Deadband (W)",
+          "min_interval": "Delay between commands (s)",
+          "import_limit": "Max grid import during smart charge (W)"
+        },
+        "description": "Smart modes need a sensor measuring grid import (positive) / export (negative), e.g. Shelly Pro 3EM phase A."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "electric_level": {
+        "name": "State of charge"
+      },
+      "battery_power": {
+        "name": "Battery power"
+      },
+      "charge_power": {
+        "name": "Charge power"
+      },
+      "discharge_power": {
+        "name": "Discharge power"
+      },
+      "output_home_power": {
+        "name": "Output to home"
+      },
+      "grid_input_power": {
+        "name": "Grid input power"
+      },
+      "solar_input_power": {
+        "name": "Solar input power"
+      },
+      "grid_off_power": {
+        "name": "Off-grid power"
+      },
+      "remain_out_time": {
+        "name": "Remaining discharge time"
+      },
+      "pack_state": {
+        "name": "State",
+        "state": {
+          "standby": "Standby",
+          "charging": "Charging",
+          "discharging": "Discharging"
+        }
+      },
+      "temperature": {
+        "name": "Inverter temperature"
+      },
+      "pack_num": {
+        "name": "Number of packs"
+      },
+      "rssi": {
+        "name": "Wi-Fi signal"
+      },
+      "fault_level": {
+        "name": "Fault level"
+      },
+      "pack_soc": {
+        "name": "Pack {pack} level"
+      },
+      "pack_temperature": {
+        "name": "Pack {pack} temperature"
+      },
+      "pack_voltage": {
+        "name": "Pack {pack} voltage"
+      },
+      "pack_current": {
+        "name": "Pack {pack} current"
+      },
+      "pack_cell_max": {
+        "name": "Pack {pack} max cell"
+      },
+      "pack_cell_min": {
+        "name": "Pack {pack} min cell"
+      },
+      "energy_charged": {
+        "name": "Energy charged"
+      },
+      "energy_discharged": {
+        "name": "Energy discharged"
+      },
+      "energy_output_home": {
+        "name": "Energy to home"
+      },
+      "energy_grid_input": {
+        "name": "Energy from grid"
+      }
+    },
+    "number": {
+      "power_setpoint": {
+        "name": "Power setpoint"
+      },
+      "input_limit": {
+        "name": "AC charge limit"
+      },
+      "output_limit": {
+        "name": "Output limit"
+      },
+      "soc_set": {
+        "name": "Maximum SOC"
+      },
+      "min_soc": {
+        "name": "Minimum SOC"
+      }
+    },
+    "select": {
+      "ac_mode": {
+        "name": "AC mode",
+        "state": {
+          "charge": "Charge",
+          "discharge": "Discharge"
+        }
+      },
+      "grid_off_mode": {
+        "name": "Off-grid mode",
+        "state": {
+          "standard": "Standard",
+          "economic": "Economic",
+          "closed": "Closed"
+        }
+      },
+      "operating_mode": {
+        "name": "Operating mode",
+        "state": {
+          "off": "Off",
+          "manual": "Manual power",
+          "smart": "Smart matching",
+          "smart_discharge": "Smart discharge",
+          "smart_charge": "Smart charge",
+          "solar": "Store solar"
+        }
+      }
+    },
+    "binary_sensor": {
+      "error": {
+        "name": "Error"
+      },
+      "heating": {
+        "name": "Battery heating"
+      },
+      "grid": {
+        "name": "Grid connected"
+      },
+      "bypass": {
+        "name": "Bypass"
+      },
+      "reverse_flow": {
+        "name": "Reverse flow"
+      }
+    }
+  }
+}
