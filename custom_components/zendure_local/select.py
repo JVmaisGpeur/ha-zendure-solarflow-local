@@ -95,6 +95,7 @@ class ZendureModeSelect(ZendureEntity, SelectEntity, RestoreEntity):
             "statut": self._reg.status,
             "capteur_reseau": self._reg.sensor,
             "inverser_signe": self._reg.invert,
+            "capteur_solaire": self._reg.solar_sensor,
             "puissance_reseau": self._reg.last_grid,
             "consigne": self.coordinator.power_setpoint,
         }

@@ -36,11 +36,18 @@
           "invert_grid": "Invert sensor sign (tick if positive = export)",
           "target_power": "Grid target (W, 0 = zero export)",
           "deadband": "Deadband (W)",
-          "min_interval": "Delay between commands (s)",
-          "import_limit": "Max grid import during smart charge (W)"
+          "min_interval": "Minimum delay between regulation steps (s)",
+          "import_limit": "Max grid import during grid charge (W)",
+          "solar_sensor": "Solar production sensor (for “Store solar”)",
+          "min_soc": "Minimum state of charge (%)",
+          "max_soc": "Maximum state of charge (%)",
+          "fast_scan_interval": "Battery polling while regulating (s)"
         },
         "description": "Smart modes need a sensor measuring grid import (positive) / export (negative), e.g. Shelly Pro 3EM phase A."
       }
+    },
+    "error": {
+      "write_failed": "Could not write the charge levels to the battery."
     }
   },
   "entity": {
@@ -121,6 +128,27 @@
       },
       "energy_grid_input": {
         "name": "Energy from grid"
+      },
+      "tune_meter_period": {
+        "name": "Meter update period"
+      },
+      "tune_noise": {
+        "name": "Meter noise"
+      },
+      "tune_dead_time": {
+        "name": "Battery reaction delay"
+      },
+      "tune_response_time": {
+        "name": "Battery response time"
+      },
+      "tune_gain": {
+        "name": "Regulation gain"
+      },
+      "tune_deadband": {
+        "name": "Applied deadband"
+      },
+      "tune_responses": {
+        "name": "Response measurements"
       }
     },
     "number": {
@@ -164,7 +192,8 @@
           "smart": "Smart matching",
           "smart_discharge": "Smart discharge",
           "smart_charge": "Smart charge",
-          "solar": "Store solar"
+          "solar": "Store solar",
+          "grid_charge": "Grid charge"
         }
       }
     },
@@ -183,6 +212,19 @@
       },
       "reverse_flow": {
         "name": "Reverse flow"
+      }
+    },
+    "switch": {
+      "auto_tune": {
+        "name": "Regulation auto-tuning"
+      }
+    },
+    "button": {
+      "measure_response": {
+        "name": "Measure battery response"
+      },
+      "reset_learning": {
+        "name": "Reset learning"
       }
     }
   }

@@ -199,12 +199,25 @@ ENERGY_SENSORS = (
 )
 
 
+# Paramètres appris par le réglage automatique (diagnostic)
+TUNING_SENSORS: tuple[tuple[str, str | None, Callable[[Any], Any]], ...] = (
+    ("tune_meter_period", UnitOfTime.SECONDS, lambda r: r.tuner.state.meter_period),
+    ("tune_noise", UnitOfPower.WATT, lambda r: r.tuner.state.noise),
+    ("tune_dead_time", UnitOfTime.SECONDS, lambda r: r.tuner.state.dead_time),
+    ("tune_response_time", UnitOfTime.SECONDS, lambda r: r.tuner.state.response_time),
+    ("tune_gain", None, lambda r: r.gain),
+    ("tune_deadband", UnitOfPower.WATT, lambda r: r.deadband),
+    ("tune_responses", None, lambda r: r.tuner.state.responses),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ZendureConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator = entry.runtime_data
     entities: list[SensorEntity] = [ZendureSensor(coordinator, d) for d in SENSORS]
     entities += [ZendureEnergySensor(coordinator, key, prop) for key, prop in ENERGY_SENSORS]
+    entities += [ZendureTuningSensor(coordinator, *d) for d in TUNING_SENSORS]
     for idx, _pack in enumerate(coordinator.packs):
         entities += [ZendurePackSensor(coordinator, d, idx) for d in PACK_SENSORS]
     async_add_entities(entities)
@@ -292,3 +305,28 @@ class ZendureEnergySensor(ZendureEntity, RestoreSensor):
     @property
     def native_value(self) -> float:
         return round(self._total, 3)
+
+
+class ZendureTuningSensor(ZendureEntity, SensorEntity):
+    """Ce que la régulation a appris de l'installation."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: ZendureCoordinator, key: str, unit: str | None, fn) -> None:
+        super().__init__(coordinator, key)
+        self._attr_translation_key = key
+        self._attr_native_unit_of_measurement = unit
+        self._fn = fn
+        self._attr_suggested_display_precision = 0 if unit == UnitOfPower.WATT or key == "tune_responses" else 1
+        if key == "tune_gain":
+            self._attr_suggested_display_precision = 2
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(self.coordinator.regulator.add_listener(self.async_write_ha_state))
+
+    @property
+    def native_value(self) -> Any:
+        value = self._fn(self.coordinator.regulator)
+        return None if value is None else round(float(value), 3)

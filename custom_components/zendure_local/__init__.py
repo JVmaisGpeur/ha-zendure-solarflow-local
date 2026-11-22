@@ -43,7 +43,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZendureConfigEntry) -> b
     coordinator = ZendureCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
     coordinator.regulator = ZendureRegulator(hass, coordinator)
-    entry.async_on_unload(coordinator.regulator.stop)
+    await coordinator.regulator.async_load()
+    entry.async_on_unload(coordinator.regulator.shutdown)
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload))

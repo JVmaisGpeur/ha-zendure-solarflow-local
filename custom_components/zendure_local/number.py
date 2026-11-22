@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfPower
+from homeassistant.const import PERCENTAGE, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -90,7 +90,6 @@ class ZendureSoc(ZendureEntity, NumberEntity):
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_mode = NumberMode.SLIDER
     _attr_native_step = 1
-    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, coordinator: ZendureCoordinator, key: str, prop: str, vmin: int, vmax: int) -> None:
         super().__init__(coordinator, key)

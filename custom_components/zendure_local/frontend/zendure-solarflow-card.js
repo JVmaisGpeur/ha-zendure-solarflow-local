@@ -12,7 +12,7 @@
  *   show_history: true    # courbe des dernières 24 h
  *   show_flow: true       # schéma des flux d'énergie
  */
-const CARD_VERSION = "1.0.0";
+const CARD_VERSION = "1.1.0";
 const DOMAIN = "zendure_local";
 
 const I18N = {
@@ -22,13 +22,14 @@ const I18N = {
     last24: "Dernières 24 h", available: "Disponible", capacity: "Capacité", cycles: "Cycles", efficiency: "Rendement",
     temp: "Température", flows: "Flux d'énergie", control: "Pilotage", mode: "Mode de fonctionnement",
     setpoint: "Consigne", statusLbl: "Statut",
+    socLimits: "Niveaux de charge", socMin: "Minimum", socMax: "Maximum",
     notFound: "Aucune batterie Zendure trouvée. Vérifie que l'intégration « Zendure SolarFlow Local » est configurée.",
     noSensor: "Ce mode a besoin d'un capteur réseau : Paramètres → Appareils et services → Zendure → Configurer.",
     ed: { device_id: "Batterie (si plusieurs)", name: "Titre", capacity: "Capacité (kWh, vide = automatique)",
           solar_entity: "Capteur de production solaire (facultatif)", consumers: "Appareils à afficher dans les flux (5 max)",
           show_history: "Afficher la courbe 24 h", show_flow: "Afficher les flux d'énergie" },
     modes: { off: "Arrêt", manual: "Puissance manuelle", smart: "Couplage intelligent",
-             smart_discharge: "Décharge intelligente", smart_charge: "Charge intelligente", solar: "Stocker le solaire" },
+             smart_discharge: "Décharge intelligente", smart_charge: "Charge intelligente", solar: "Stocker le solaire", grid_charge: "Charge réseau" },
   },
   en: {
     grid: "Grid", home: "Home", battery: "Battery", solar: "Solar",
@@ -36,18 +37,19 @@ const I18N = {
     last24: "Last 24 h", available: "Available", capacity: "Capacity", cycles: "Cycles", efficiency: "Efficiency",
     temp: "Temperature", flows: "Energy flow", control: "Control", mode: "Operating mode",
     setpoint: "Setpoint", statusLbl: "Status",
+    socLimits: "Charge levels", socMin: "Minimum", socMax: "Maximum",
     notFound: "No Zendure battery found. Make sure the “Zendure SolarFlow Local” integration is set up.",
     noSensor: "This mode needs a grid sensor: Settings → Devices & services → Zendure → Configure.",
     ed: { device_id: "Battery (if several)", name: "Title", capacity: "Capacity (kWh, empty = auto)",
           solar_entity: "Solar production sensor (optional)", consumers: "Devices shown in the flow (max 5)",
           show_history: "Show 24 h chart", show_flow: "Show energy flow" },
     modes: { off: "Off", manual: "Manual power", smart: "Smart matching",
-             smart_discharge: "Smart discharge", smart_charge: "Smart charge", solar: "Store solar" },
+             smart_discharge: "Smart discharge", smart_charge: "Smart charge", solar: "Store solar", grid_charge: "Grid charge" },
   },
 };
 
-const MODES = ["off", "manual", "smart", "smart_discharge", "smart_charge", "solar"];
-const REGULATED = ["smart", "smart_discharge", "smart_charge", "solar"];
+const MODES = ["off", "manual", "smart", "smart_discharge", "smart_charge", "solar", "grid_charge"];
+const REGULATED = ["smart", "smart_discharge", "smart_charge", "solar", "grid_charge"];
 const COLORS = { grid: "#4a90d9", solar: "#ff9800", battery: "#26c6a8", home: "#4a90d9" };
 const CONSUMER_COLORS = ["#d4e157", "#ba68c8", "#ab47bc", "#4dd0e1", "#f06292"];
 
@@ -62,6 +64,12 @@ const fmtW = (w) => {
   if (w === null || w === undefined || isNaN(w)) return "—";
   const a = Math.abs(w);
   return a >= 1000 ? `${(a / 1000).toFixed(2)} kW` : `${Math.round(a)} W`;
+};
+// Format compact pour les cercles du schéma (évite les débordements)
+const fmtS = (w) => {
+  if (w === null || w === undefined || isNaN(w)) return "—";
+  const a = Math.abs(w);
+  return a >= 1000 ? `${(a / 1000).toFixed(a >= 10000 ? 0 : 1)} kW` : `${Math.round(a)} W`;
 };
 const num = (v) => {
   const n = parseFloat(v);
@@ -143,6 +151,9 @@ class ZendureSolarflowCard extends HTMLElement {
     const packs = this._val("pack_num") || 1;
     if (/800/.test(model)) return 1.92 * packs; // packs AB2000
     return 2.88 * packs; // packs AB3000X (2400 AC, 1600 AC+…)
+  }
+  _solarEntity() {
+    return this._config.solar_entity || this._state("operating_mode")?.attributes?.capteur_solaire || null;
   }
   _moreInfo(entityId) {
     if (!entityId) return;
@@ -282,6 +293,18 @@ class ZendureSolarflowCard extends HTMLElement {
             <ha-icon icon="mdi:menu-down"></ha-icon>
           </div>
           <div class="hint" id="hint"></div>
+          <div class="socbox">
+            <div class="crow">
+              <div class="cicon"><ha-icon icon="mdi:battery-sync-outline"></ha-icon></div>
+              <div class="ctitle">${t.socLimits}</div>
+            </div>
+            <div class="socgrid">
+              <label class="socin"><span>${t.socMin} <small id="rg-min"></small></span>
+                <div class="field"><input type="number" id="in-min" inputmode="numeric" step="1" /><em>%</em></div></label>
+              <label class="socin"><span>${t.socMax} <small id="rg-max"></small></span>
+                <div class="field"><input type="number" id="in-max" inputmode="numeric" step="1" /><em>%</em></div></label>
+            </div>
+          </div>
           <div class="manual" id="manual">
             <div class="mrow"><span>${t.setpoint}</span><b id="sp-val">0 W</b></div>
             <input type="range" id="slider" step="10" />
@@ -318,6 +341,22 @@ class ZendureSolarflowCard extends HTMLElement {
       this._hass.callService("number", "set_value", { entity_id: this._ents.power_setpoint, value: num(slider.value) });
     });
 
+    // SOC min / max : envoi à la validation (Entrée ou sortie du champ)
+    for (const [id, key] of [["in-min", "min_soc"], ["in-max", "soc_set"]]) {
+      const input = $(id);
+      input.addEventListener("focus", () => (this._editing = id));
+      input.addEventListener("blur", () => (this._editing = null));
+      input.addEventListener("keydown", (ev) => ev.key === "Enter" && input.blur());
+      input.addEventListener("change", () => {
+        const st = this._state(key);
+        let v = Math.round(num(input.value));
+        if (v === null || isNaN(v) || !st) return;
+        v = Math.max(st.attributes.min ?? 0, Math.min(st.attributes.max ?? 100, v));
+        input.value = v;
+        this._hass.callService("number", "set_value", { entity_id: this._ents[key], value: v });
+      });
+    }
+
     // Ouvertures « plus d'infos »
     const mi = (id, fn) => $(id)?.addEventListener("click", () => this._moreInfo(fn()));
     mi("bat-click", () => this._ents.electric_level);
@@ -331,6 +370,7 @@ class ZendureSolarflowCard extends HTMLElement {
     mi("c-temp", () => this._ents.temperature);
     mi("c-status", () => this._ents.operating_mode);
 
+    this._ents = this._resolve();
     if (cfg.show_flow) this._buildFlow();
     this._built = true;
   }
@@ -342,7 +382,7 @@ class ZendureSolarflowCard extends HTMLElement {
       { id: "battery", pos: POS.battery, color: COLORS.battery, icon: "mdi:home-battery", label: t.battery },
       { id: "home", pos: POS.home, color: COLORS.home, icon: "mdi:home", label: "", big: true },
     ];
-    if (this._config.solar_entity)
+    if (this._solarEntity())
       nodes.push({ id: "solar", pos: POS.solar, color: COLORS.solar, icon: "mdi:solar-power-variant", label: t.solar });
     this._consumers.forEach((c, i) => {
       const st = this._hass.states[c.entity];
@@ -401,7 +441,7 @@ class ZendureSolarflowCard extends HTMLElement {
           grid: this._state("operating_mode")?.attributes?.capteur_reseau,
           battery: this._ents.battery_power,
           home: this._ents.output_home_power,
-          solar: this._config.solar_entity,
+          solar: this._solarEntity(),
         };
         this._moreInfo(n.entity || map[n.id]);
       });
@@ -487,7 +527,7 @@ class ZendureSolarflowCard extends HTMLElement {
 
     // ---- Maison / Réseau
     const grid = this._gridPower();
-    const solar = this._config.solar_entity ? this._watts(this._config.solar_entity) : null;
+    const solar = this._solarEntity() ? this._watts(this._solarEntity()) : null;
     // Conso maison = réseau + solaire + décharge batterie (− charge)
     const home = grid === null ? this._val("output_home_power") : grid + (solar ?? 0) - (bat ?? 0);
     $("v-home").innerHTML = `${home !== null && Math.abs(home) >= 5 ? `<i class="arr ${home > 0 ? "up" : "down"}"></i>` : ""}${fmtW(home)}`;
@@ -520,6 +560,16 @@ class ZendureSolarflowCard extends HTMLElement {
     select.disabled = unavailable;
     $("mode-sub").textContent = t.modes[mode] || mode || "—";
     if (sel?.attributes?.capteur_reseau) $("hint").classList.remove("show");
+    for (const [id, key] of [["in-min", "min_soc"], ["in-max", "soc_set"]]) {
+      const st = this._state(key), input = $(id);
+      input.disabled = !st || st.state === "unavailable";
+      if (st) {
+        input.min = st.attributes.min ?? 0;
+        input.max = st.attributes.max ?? 100;
+        $(id.replace("in-", "rg-")).textContent = `(${input.min} – ${input.max} %)`;
+        if (this._editing !== id) input.value = num(st.state) === null ? "" : Math.round(num(st.state));
+      }
+    }
     const sp = this._state("power_setpoint");
     $("manual").classList.toggle("show", mode === "manual");
     if (sp && !this._dragging) {
@@ -534,23 +584,23 @@ class ZendureSolarflowCard extends HTMLElement {
   _renderFlow({ grid, solar, bat, home, soc }) {
     const $ = this._$;
     // Réseau : ← injection / → soutirage
-    $("nv-grid").innerHTML = `<span class="out">← ${fmtW(grid !== null && grid < 0 ? -grid : 0)}</span>`;
-    $("nv2-grid").innerHTML = `<span class="in">→ ${fmtW(grid !== null && grid > 0 ? grid : 0)}</span>`;
+    $("nv-grid").innerHTML = `<span class="out">← ${fmtS(grid !== null && grid < 0 ? -grid : 0)}</span>`;
+    $("nv2-grid").innerHTML = `<span class="in">→ ${fmtS(grid !== null && grid > 0 ? grid : 0)}</span>`;
     this._setDots("grid", grid, grid > 0);
 
     // Batterie : SOC + ↓ charge / ↑ décharge
     $("nv-battery").textContent = soc === null ? "—" : `${Math.round(soc)} %`;
     $("nv2-battery").innerHTML =
-      bat > 5 ? `<span class="in">↓ ${fmtW(bat)}</span>` : bat < -5 ? `<span class="out">↑ ${fmtW(-bat)}</span>` : "0 W";
+      bat > 5 ? `<span class="in">↓ ${fmtS(bat)}</span>` : bat < -5 ? `<span class="out">↑ ${fmtS(-bat)}</span>` : "0 W";
     this._setDots("battery", bat, bat < 0);
 
-    if (this._config.solar_entity) {
-      $("nv-solar").textContent = fmtW(solar);
+    if (this._$("nv-solar")) {
+      $("nv-solar").textContent = fmtS(solar);
       this._setDots("solar", solar, true);
     }
 
     // Maison + anneau de répartition des sources
-    $("nv-home").textContent = fmtW(home);
+    $("nv-home").textContent = fmtS(home);
     const srcGrid = Math.max(grid ?? 0, 0), srcSolar = Math.max(solar ?? 0, 0), srcBat = Math.max(-(bat ?? 0), 0);
     const tot = srcGrid + srcSolar + srcBat;
     const ring = $("r-home");
@@ -565,7 +615,7 @@ class ZendureSolarflowCard extends HTMLElement {
     // Appareils
     this._consumers.forEach((c, i) => {
       const w = this._watts(c.entity);
-      $(`nv-c${i}`).textContent = fmtW(w);
+      $(`nv-c${i}`).textContent = fmtS(w);
       this._setDots(`c${i}`, w, false);
     });
   }
@@ -622,7 +672,7 @@ const STYLE = `
     --z-muted: var(--secondary-text-color); --z-panel: rgba(127,127,127,.12); --z-line: rgba(127,127,127,.22);
   }
   ha-card {
-    padding: 18px; display: flex; flex-direction: column; gap: 14px; overflow: hidden;
+    padding: 18px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; container-type: inline-size;
     background: linear-gradient(160deg,
       color-mix(in srgb, var(--z-blue) 9%, var(--ha-card-background, var(--card-background-color))) 0%,
       var(--ha-card-background, var(--card-background-color)) 60%);
@@ -717,8 +767,8 @@ const STYLE = `
   .node.big .circle > * { position: relative; }
   .circle ha-icon { --mdc-icon-size: clamp(16px, 5.4cqw, 26px); color: var(--c); }
   .node.big .circle ha-icon { color: var(--primary-text-color); --mdc-icon-size: clamp(18px, 5.4cqw, 28px); }
-  .nv { font-size: clamp(10px, 3.2cqw, 14px); font-weight: 700; white-space: nowrap; }
-  .nv2 { font-size: clamp(9px, 2.7cqw, 12px); font-weight: 600; white-space: nowrap; }
+  .nv { font-size: clamp(10px, 3.1cqw, 14px); font-weight: 700; white-space: nowrap; max-width: 86%; overflow: hidden; }
+  .nv2 { font-size: clamp(8px, 2.4cqw, 11px); font-weight: 600; white-space: nowrap; max-width: 86%; overflow: hidden; }
   .node.big .nv { font-size: clamp(11px, 3.8cqw, 17px); }
   .nv .out, .nv2 .out { color: #ec6a9c; }
   .nv .in, .nv2 .in { color: var(--z-blue); }
@@ -743,6 +793,16 @@ const STYLE = `
   select:focus { outline: 2px solid var(--primary-color); }
   select option { color: #111; }
   .selwrap ha-icon { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; --mdc-icon-size: 24px; }
+  .socbox { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--z-line); }
+  .socgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .socin small { opacity: .75; }
+  .socin { display: flex; flex-direction: column; gap: 6px; font-size: .8em; color: var(--z-muted); }
+  .field { display: flex; align-items: center; background: rgba(127,127,127,.16); border-radius: 14px; padding: 0 14px; }
+  .field:focus-within { outline: 2px solid var(--primary-color); }
+  .field input { flex: 1; min-width: 0; background: none; border: none; outline: none; font: inherit; font-size: 1.35em;
+                 font-weight: 700; color: var(--primary-text-color); padding: 10px 0; -moz-appearance: textfield; }
+  .field input::-webkit-inner-spin-button, .field input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .field em { font-style: normal; color: var(--z-muted); font-size: 1.1em; }
   .hint { display: none; font-size: .78em; color: var(--z-orange); }
   .hint.show { display: block; }
   .manual { display: none; }
@@ -751,7 +811,7 @@ const STYLE = `
   .manual input { width: 100%; margin: 10px 0 4px; accent-color: var(--primary-color); }
   .scale { display: flex; justify-content: space-between; font-size: .7em; color: var(--z-muted); }
 
-  @media (max-width: 420px) {
+  @container (max-width: 400px) {
     .tiles4 { grid-template-columns: repeat(2, 1fr); }
     .bat { width: 92px; } .pct { font-size: 2.8em; }
   }

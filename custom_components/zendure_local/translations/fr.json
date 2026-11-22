@@ -36,11 +36,18 @@
           "invert_grid": "Inverser le signe du capteur (cocher si positif = injection)",
           "target_power": "Cible au compteur (W, 0 = zéro injection)",
           "deadband": "Zone morte (W)",
-          "min_interval": "Délai entre deux commandes (s)",
-          "import_limit": "Soutirage max au compteur en « Charge intelligente » (W)"
+          "min_interval": "Délai minimum entre deux calculs de régulation (s)",
+          "import_limit": "Soutirage max au compteur en « Charge réseau » (W)",
+          "solar_sensor": "Capteur de production solaire (pour « Stocker le solaire »)",
+          "min_soc": "Niveau de charge minimum (%)",
+          "max_soc": "Niveau de charge maximum (%)",
+          "fast_scan_interval": "Lecture de la batterie pendant la régulation (s)"
         },
         "description": "Les modes intelligents ont besoin d'un capteur qui mesure ce qui entre (positif) ou sort (négatif) du tableau électrique, par ex. la phase A du Shelly Pro 3EM."
       }
+    },
+    "error": {
+      "write_failed": "Impossible d'écrire les niveaux de charge dans la batterie."
     }
   },
   "entity": {
@@ -121,6 +128,27 @@
       },
       "energy_grid_input": {
         "name": "Énergie prise au réseau"
+      },
+      "tune_meter_period": {
+        "name": "Rythme du compteur"
+      },
+      "tune_noise": {
+        "name": "Bruit du compteur"
+      },
+      "tune_dead_time": {
+        "name": "Délai de réaction batterie"
+      },
+      "tune_response_time": {
+        "name": "Temps de réponse batterie"
+      },
+      "tune_gain": {
+        "name": "Gain de régulation"
+      },
+      "tune_deadband": {
+        "name": "Zone morte appliquée"
+      },
+      "tune_responses": {
+        "name": "Mesures de réponse"
       }
     },
     "number": {
@@ -164,7 +192,8 @@
           "smart": "Couplage intelligent",
           "smart_discharge": "Décharge intelligente",
           "smart_charge": "Charge intelligente",
-          "solar": "Stocker le solaire"
+          "solar": "Stocker le solaire",
+          "grid_charge": "Charge réseau"
         }
       }
     },
@@ -183,6 +212,19 @@
       },
       "reverse_flow": {
         "name": "Reflux réseau"
+      }
+    },
+    "switch": {
+      "auto_tune": {
+        "name": "Réglage automatique de la régulation"
+      }
+    },
+    "button": {
+      "measure_response": {
+        "name": "Mesurer la réponse de la batterie"
+      },
+      "reset_learning": {
+        "name": "Réinitialiser l'apprentissage"
       }
     }
   }

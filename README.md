@@ -50,7 +50,7 @@ Ce qu'elle affiche :
 - **Courbe des dernières 24 h** du niveau de charge.
 - **Disponible / Capacité / Cycles / Rendement**. Les cycles et le rendement sont calculés à partir des compteurs d'énergie de l'intégration, depuis son installation.
 - **Flux d'énergie** : Réseau, Solaire, Batterie et jusqu'à 5 appareils autour de la Maison. Des points animés montrent le sens de circulation de l'énergie, et l'anneau de la Maison indique la part de chaque source.
-- **Pilotage** : liste déroulante du mode de fonctionnement, plus le curseur de consigne en mode manuel.
+- **Pilotage** : liste déroulante du mode de fonctionnement, cases pour les niveaux de charge **minimum** et **maximum**, et curseur de consigne en mode manuel.
 
 Un appui sur un élément ouvre son historique. La carte suit le thème clair ou sombre et la langue de Home Assistant (français ou anglais).
 
@@ -67,12 +67,34 @@ Un appui sur un élément ouvre son historique. La carte suit le thème clair ou
 | Packs | Niveau, température, tension, courant, cellules min/max par pack |
 | Diagnostic | Défaut, Chauffage batterie, Réseau connecté, By-pass, Signal Wi-Fi |
 
+## Réglage automatique de la régulation
+
+Chaque installation est différente : vitesse de la batterie, rythme du compteur (Shelly environ 1 s, P1 ou Linky 2 à 10 s), consommation plus ou moins fluctuante. Avec l'interrupteur **Réglage automatique de la régulation**, activé par défaut, l'intégration **observe ton installation sans rien forcer** et adapte seule ses réglages.
+
+| Ce qu'elle apprend | Ce qu'elle en déduit |
+|---|---|
+| Rythme du compteur | Délai entre deux calculs |
+| Bruit du compteur (fluctuation quand rien ne change) | Zone morte : on ne court plus après le bruit |
+| Délai de réaction et temps de réponse de la batterie | Temps d'attente anti-oscillation |
+| Dépassements ou corrections trop timides | Gain, entre 0,5 et 1 |
+
+- Les valeurs apprises sont visibles dans les **capteurs de diagnostic** de l'appareil et conservées après un redémarrage.
+- Tant qu'il n'y a pas assez de mesures, les valeurs par défaut s'appliquent.
+- **Mesurer la réponse de la batterie** : ce bouton fait un petit échelon de 300 W pendant environ 12 s pour calibrer tout de suite, au lieu d'attendre quelques heures d'observation.
+- **Réinitialiser l'apprentissage** : à utiliser après un changement de compteur ou de batterie.
+- Si tu coupes le réglage automatique, la régulation reprend les valeurs de **Configurer**.
+
+En simulation sur 4 profils d'installation, la précision au compteur reste la même qu'avec les réglages fixes, mais la batterie reçoit **47 à 85 % de commandes en moins**.
+
 ## Options
 
-**Configurer** sur l'intégration :
-- **Intervalle de lecture** : 10 s par défaut (3 à 120 s).
-- **Puissance max** : 3000 W par défaut (bornes de la consigne et des limites).
-- **Écrire en RAM** (activé par défaut) : les commandes de puissance sont envoyées avec `smartMode: 1`, donc elles ne s'écrivent pas dans la mémoire flash. On peut ainsi les changer souvent sans user la flash. Après un redémarrage de la batterie, elle revient à ses valeurs enregistrées. Les SOC min/max, eux, sont enregistrés en flash.
+Bouton **Configurer** sur l'intégration :
+- **Niveau de charge minimum / maximum** (%) : ils sont enregistrés directement dans la batterie. On peut aussi les régler avec les entités « SOC minimum » et « SOC maximum » ou depuis la carte.
+- **Intervalle de lecture** : 10 s par défaut, quand aucune régulation ne tourne.
+- **Lecture de la batterie pendant la régulation** : 2 s par défaut.
+- **Puissance max** : 3000 W par défaut.
+- **Écrire en RAM** (activé par défaut) : les commandes de puissance ne s'écrivent pas dans la mémoire flash.
+- **Capteur réseau**, **capteur de production solaire**, **inverser le signe**, **cible au compteur**, **zone morte**, **délai minimum entre deux calculs** (1 s par défaut), **soutirage max en charge réseau**.
 
 ## Modes de fonctionnement
 
@@ -82,20 +104,29 @@ Le sélecteur **Mode de fonctionnement** pilote la batterie :
 |---|---|
 | **Arrêt** | Ne charge ni ne décharge (consigne 0) |
 | **Puissance manuelle** | Suit la **Consigne de puissance** (+ décharge, − charge) |
-| **Couplage intelligent** | Zéro injection : décharge si tu soutires, charge si tu injectes |
-| **Décharge intelligente** | Couvre ta consommation, mais ne se charge jamais (le surplus va au réseau ou au routeur) |
-| **Charge intelligente** | Se charge sur le réseau au maximum possible sans dépasser le **soutirage max au compteur** (6000 W par défaut). Pratique en heures creuses |
-| **Stocker le solaire** | Se charge uniquement avec le surplus solaire et ne se décharge pas (garde l'énergie pour plus tard) |
+| **Couplage intelligent** | Stocke le surplus solaire au lieu de l'injecter, et fournit à la maison ce qui manque quand la production ne suffit pas |
+| **Décharge intelligente** | Fournit seulement ce qui manque à la maison. Ne se charge jamais |
+| **Charge intelligente** | Stocke seulement le surplus solaire. Ne se décharge jamais : l'énergie est gardée pour plus tard |
+| **Stocker le solaire** | Charge toute la production solaire, même si la maison consomme (il faut un **capteur de production solaire**). Sans ce capteur, se comporte comme « Charge intelligente » |
+| **Charge réseau** | Charge sur le réseau au maximum possible sans dépasser le **soutirage max au compteur** (6000 W par défaut) |
 
 Le mode est mémorisé au redémarrage. Si tu changes la consigne à la main, le mode repasse en **Puissance manuelle**.
 L'attribut `statut` du sélecteur indique ce que fait la batterie (stable, charge, décharge, batterie pleine…).
 
-### Capteur réseau (obligatoire pour les 4 modes intelligents)
+### Capteurs (obligatoires pour les modes automatiques)
 
 1. **Configurer** sur l'intégration → **Capteur réseau** : choisis n'importe quel capteur de puissance, par ex. la phase A d'un Shelly Pro 3EM.
-2. Il doit être **positif quand tu soutires** et **négatif quand tu injectes** (c'est le cas du Shelly). Sinon coche **Inverser le signe**.
+   Il doit être **positif quand tu soutires** et **négatif quand tu injectes** (c'est le cas du Shelly). Sinon coche **Inverser le signe**.
+2. **Capteur de production solaire** (facultatif) : il sert au mode « Stocker le solaire ». La carte l'affiche aussi automatiquement dans les flux.
 
-Réglages : **cible au compteur** (0 W), **zone morte** (25 W), **délai entre deux commandes** (5 s).
+### Une régulation la plus réactive possible
+
+- Elle recalcule **à chaque nouvelle mesure du compteur** (environ toutes les secondes avec un Shelly), au lieu d'attendre un minuteur.
+- Pendant la régulation, la batterie est relue toutes les 2 s, et juste après chaque commande.
+- La batterie met quelques secondes à atteindre une nouvelle consigne. Pendant ce temps, la régulation ne la pousse pas plus loin dans le même sens, ce qui évite les dépassements et les oscillations. Une correction en sens inverse, par exemple si la consommation chute, part immédiatement.
+- En simulation, après un appel de charge de 1500 W, l'équilibre au compteur revient en 3 à 4 s.
+
+Réglages : **cible au compteur** (0 W), **zone morte** (25 W), **délai minimum entre deux calculs** (1 s).
 
 Sécurités :
 - Pas de décharge sous le SOC minimum ni de charge au-dessus du SOC maximum.
@@ -103,34 +134,26 @@ Sécurités :
 
 ⚠️ Désactive toute régulation dans l'app Zendure (mode compteur intelligent) : les deux se contrediraient.
 
-## Exemples d'automatisations
+## Exemple d'automatisation
 
-Charge intelligente en heures creuses, puis retour au couplage intelligent :
+L'intégration ne gère **aucun tarif** (heures pleines/creuses, Tempo…) : c'est le rôle de tes automatisations, qui changent simplement le mode. Par exemple :
 
 ```yaml
 automation:
-  - alias: Batterie - charge heures creuses
+  - alias: Batterie - passer en charge réseau
     triggers:
-      - trigger: time
-        at: "23:00:00"
+      - trigger: state
+        entity_id: input_boolean.charger_batterie_sur_reseau
+        to: "on"
     actions:
       - action: select.select_option
         target:
           entity_id: select.zendure_solarflow_mode_de_fonctionnement
         data:
-          option: smart_charge
-
-  - alias: Batterie - fin heures creuses
-    triggers:
-      - trigger: time
-        at: "06:00:00"
-    actions:
-      - action: select.select_option
-        target:
-          entity_id: select.zendure_solarflow_mode_de_fonctionnement
-        data:
-          option: smart
+          option: grid_charge
 ```
+
+Valeurs possibles pour `option` : `off`, `manual`, `smart`, `smart_discharge`, `smart_charge`, `solar`, `grid_charge`.
 
 > Les `entity_id` dépendent du nom donné à l'appareil : vérifie-les dans **Paramètres → Entités**.
 
@@ -141,6 +164,10 @@ automation:
 - Décharge : `acMode: 2` + `outputLimit` ; charge : `acMode: 1` + `inputLimit`
 - `socSet` / `minSoc` sont stockés par l'appareil en dixièmes de % (1000 = 100 %)
 - Découverte automatique via mDNS `_zendure._tcp`
+
+## Feuille de route
+
+- **Plusieurs batteries** (2 ou 3) qui travaillent ensemble : charge et décharge en simultané, ou par ordre de priorité, dans l'intégration comme dans la carte. Pour l'instant, l'intégration pilote une seule batterie.
 
 ## Licence
 

@@ -6,9 +6,15 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.config_entries import (
+    ConfigEntryState,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_HOST
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -20,15 +26,20 @@ except ImportError:  # pragma: no cover - anciennes versions
 from .api import ZendureApi, ZendureError
 from .const import (
     CONF_DEADBAND,
+    CONF_FAST_SCAN,
     CONF_GRID_SENSOR,
     CONF_IMPORT_LIMIT,
     CONF_INVERT_GRID,
     CONF_MAX_POWER,
+    CONF_MAX_SOC,
     CONF_MIN_INTERVAL,
+    CONF_MIN_SOC,
     CONF_SCAN_INTERVAL,
+    CONF_SOLAR_SENSOR,
     CONF_TARGET,
     CONF_USE_RAM,
     DEFAULT_DEADBAND,
+    DEFAULT_FAST_SCAN,
     DEFAULT_IMPORT_LIMIT,
     DEFAULT_MAX_POWER,
     DEFAULT_MIN_INTERVAL,
@@ -115,14 +126,51 @@ class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class ZendureOptionsFlow(OptionsFlow):
-    """Options : fréquence de lecture, puissance max, écriture en RAM."""
+    """Options : niveaux de charge, lecture, régulation."""
+
+    def _coordinator(self):
+        entry = self.config_entry
+        if entry.state is ConfigEntryState.LOADED:
+            return entry.runtime_data
+        return None
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        coordinator = self._coordinator()
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            data = dict(user_input)
+            # Les niveaux de charge vont dans la batterie, pas dans les options
+            min_soc, max_soc = data.pop(CONF_MIN_SOC, None), data.pop(CONF_MAX_SOC, None)
+            if coordinator is not None:
+                props = coordinator.props
+                write = {}
+                if min_soc is not None and int(min_soc) * 10 != props.get("minSoc"):
+                    write["minSoc"] = int(min_soc) * 10
+                if max_soc is not None and int(max_soc) * 10 != props.get("socSet"):
+                    write["socSet"] = int(max_soc) * 10
+                if write:
+                    try:
+                        await coordinator.async_write(write)
+                    except HomeAssistantError:
+                        errors["base"] = "write_failed"
+            if not errors:
+                return self.async_create_entry(data=data)
+
         opts = self.config_entry.options
+        fields: dict = {}
+        if coordinator is not None:
+            props = coordinator.props
+            cur_min = round((props.get("minSoc") or 100) / 10)
+            cur_max = round((props.get("socSet") or 1000) / 10)
+            fields[vol.Required(CONF_MIN_SOC, default=cur_min)] = selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=50, step=1, unit_of_measurement="%", mode="box")
+            )
+            fields[vol.Required(CONF_MAX_SOC, default=cur_max)] = selector.NumberSelector(
+                selector.NumberSelectorConfig(min=70, max=100, step=1, unit_of_measurement="%", mode="box")
+            )
         schema = vol.Schema(
             {
+                **fields,
                 vol.Required(
                     CONF_SCAN_INTERVAL, default=opts.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
                 ): vol.All(vol.Coerce(int), vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL)),
@@ -136,6 +184,12 @@ class ZendureOptionsFlow(OptionsFlow):
                 vol.Optional(
                     CONF_GRID_SENSOR,
                     description={"suggested_value": opts.get(CONF_GRID_SENSOR)},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="power")
+                ),
+                vol.Optional(
+                    CONF_SOLAR_SENSOR,
+                    description={"suggested_value": opts.get(CONF_SOLAR_SENSOR)},
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor", device_class="power")
                 ),
@@ -154,6 +208,9 @@ class ZendureOptionsFlow(OptionsFlow):
                 vol.Required(
                     CONF_MIN_INTERVAL, default=opts.get(CONF_MIN_INTERVAL, DEFAULT_MIN_INTERVAL)
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
+                vol.Required(
+                    CONF_FAST_SCAN, default=opts.get(CONF_FAST_SCAN, DEFAULT_FAST_SCAN)
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

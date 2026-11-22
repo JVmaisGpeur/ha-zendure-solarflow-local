@@ -9,6 +9,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import ZendureApi, ZendureError
@@ -40,7 +41,10 @@ class ZendureCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             config_entry=entry,
             name=f"{DOMAIN} {api.host}",
             update_interval=timedelta(seconds=interval),
+            # Relecture quasi immédiate après chaque commande
+            request_refresh_debouncer=Debouncer(hass, _LOGGER, cooldown=0.5, immediate=True),
         )
+        self.normal_interval = timedelta(seconds=interval)
         self.api = api
         self.sn: str = entry.unique_id or ""
         # Dernière consigne envoyée via l'entité « Consigne de puissance »
@@ -58,6 +62,15 @@ class ZendureCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def props(self) -> dict[str, Any]:
         return (self.data or {}).get("properties", {})
+
+    @property
+    def battery_ac_power(self) -> float | None:
+        """Puissance AC réelle de la batterie : + décharge vers la maison, − charge."""
+        p = self.props
+        out, inp = p.get("outputHomePower"), p.get("gridInputPower")
+        if out is None and inp is None:
+            return None
+        return float(out or 0) - float(inp or 0)
 
     @property
     def packs(self) -> list[dict[str, Any]]:
