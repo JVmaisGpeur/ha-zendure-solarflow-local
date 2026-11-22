@@ -18,6 +18,11 @@
           "serials": "Batteries",
           "create_group": "Create a group with these batteries (one mode for all)",
           "name": "Group name"
+        },
+        "data_description": {
+          "serials": "Batteries found on your network and not yet added. Untick those you don't want to manage here.",
+          "create_group": "Ticked: the selected batteries form a group. You pick one mode for all of them, and charging and discharging are shared between them. Essential if they are on the same meter, otherwise they would fight each other.",
+          "name": "Name of the group device in Home Assistant (e.g. “Batteries”)."
         }
       },
       "zeroconf_confirm": {
@@ -29,6 +34,9 @@
         "description": "Battery IP address. The local API must be enabled in the Zendure app (HEMS / local API setting).",
         "data": {
           "host": "IP address"
+        },
+        "data_description": {
+          "host": "Local IP address of the battery, e.g. 192.168.1.50. You can find it in the Zendure app or on your router. Reserve a fixed IP for it in your router."
         }
       },
       "group": {
@@ -37,15 +45,46 @@
         "data": {
           "name": "Group name",
           "members": "Batteries in the group"
+        },
+        "data_description": {
+          "name": "Name of the group device in Home Assistant.",
+          "members": "2 to 4 already added batteries. A battery can belong to one group only."
         }
       },
       "sensors": {
         "title": "Sensors",
-        "description": "The power sensor at the meter drives the regulation: positive when the home draws from the grid, negative when it exports. If your sensor does the opposite, tick “Invert sign”. The solar production sensor is optional: it is used by the “Store solar” mode and by the card. Everything can be changed later in “Configure”.",
+        "description": "Power sensor at the meter: positive when the home draws from the grid, negative when it exports. If your sensor does the opposite, tick “Invert sign”. The solar production sensor is optional. When Home Assistant's Energy dashboard is set up, these fields are already filled with its sensors: just confirm.",
         "data": {
           "grid_sensor": "Power sensor at the meter (W)",
           "invert_grid": "Invert the sensor sign",
           "solar_sensor": "Solar production sensor (W, optional)"
+        },
+        "data_description": {
+          "grid_sensor": "Power sensor (W) measuring what enters the home from the grid or leaves it, e.g. the Shelly Pro 3EM phase on the incoming supply. The regulation tries to bring it to 0.",
+          "invert_grid": "Tick only if your sensor shows a negative value when the home draws from the grid (positive = export).",
+          "solar_sensor": "Optional. Power produced by your panels (W). Used by the “Store solar” mode and shown in the card."
+        }
+      },
+      "circuit": {
+        "title": "Electrical circuit",
+        "description": "Are the group batteries on the same electrical circuit (same breaker)? If so, their total power is shared so it never exceeds that circuit. If only some of them are, choose “Each on its own circuit”, then set the shared circuits in “Configure”.",
+        "menu_options": {
+          "circuit_separate": "Each on its own circuit",
+          "circuit_shared": "All on the same circuit"
+        }
+      },
+      "circuit_shared": {
+        "title": "Shared circuit",
+        "description": "Choose the circuit limit. Power is shared between the batteries (following the group strategy) so their total never exceeds it, when charging as when discharging. The W fields override the list choice when filled.",
+        "data": {
+          "circuit_preset": "Circuit limit",
+          "circuit_a_limit": "Or output limit (W)",
+          "circuit_a_charge_limit": "Charge limit (W, empty = same value)"
+        },
+        "data_description": {
+          "circuit_preset": "The simplest: choose the rating of the breaker protecting this circuit (16 A = 3,600 W). The “output / charge” values match legal plug limits in some countries.",
+          "circuit_a_limit": "Optional: enter an exact limit (W) if it is not in the list. It overrides the list choice.",
+          "circuit_a_charge_limit": "Optional: limit while the batteries charge, if different from the output limit. Empty = same value."
         }
       }
     },
@@ -53,7 +92,8 @@
       "cannot_connect": "Cannot reach the battery. Check the IP and that the local API is enabled.",
       "no_serial": "The battery did not return a serial number.",
       "members_count": "Pick between 2 and 4 batteries.",
-      "nothing_selected": "Tick at least one battery."
+      "nothing_selected": "Tick at least one battery.",
+      "circuit_limit": "Enter the circuit limit in W."
     },
     "abort": {
       "already_configured": "This battery is already configured.",
@@ -67,33 +107,98 @@
       "init": {
         "title": "Options",
         "data": {
-          "scan_interval": "Polling interval (s)",
-          "use_ram": "Write power commands to RAM (saves flash wear)",
           "grid_sensor": "Grid power sensor (e.g. Shelly Pro 3EM phase A)",
           "invert_grid": "Invert sensor sign (tick if positive = export)",
-          "target_power": "Grid target (W, 0 = zero export)",
-          "deadband": "Deadband (W)",
-          "min_interval": "Minimum delay between regulation steps (s)",
-          "import_limit": "Default grid import limit in Grid charge (W)",
           "solar_sensor": "Solar production sensor (for “Store solar”)",
           "min_soc": "Minimum state of charge (%)",
           "max_soc": "Maximum state of charge (%)",
-          "fast_scan_interval": "Battery polling while regulating (s)",
-          "max_charge_power": "Maximum charge power (W)",
-          "max_discharge_power": "Maximum discharge power (W)",
-          "circuit_limit": "Electrical circuit limit (W, empty = none)",
-          "capacity": "Capacity (kWh, empty = computed from the packs)",
-          "members": "Batteries in the group (2 to 4)",
-          "priority_order_1": "Priority 1 (“priority” strategy)",
-          "priority_order_2": "Priority 2",
-          "priority_order_3": "Priority 3",
-          "priority_order_4": "Priority 4",
-          "circuit_a_members": "Shared circuit A: batteries",
-          "circuit_a_limit": "Shared circuit A: limit (W)",
-          "circuit_b_members": "Shared circuit B: batteries",
-          "circuit_b_limit": "Shared circuit B: limit (W)"
+          "members": "Batteries in the group (2 to 4)"
         },
-        "description": "Automatic modes need a sensor measuring grid import (positive) / export (negative), e.g. Shelly Pro 3EM phase A. On a group, these settings replace those of the member batteries."
+        "description": "The essentials are here. The sensors are the meter's (positive = the home draws from the grid) and solar production (optional). On a group, these settings replace those of the member batteries. Other settings are in the collapsed sections: the defaults suit most installations.",
+        "sections": {
+          "limits": {
+            "name": "Power limits and capacity",
+            "description": "Leave empty to follow the battery: limits set in the Zendure app (charge {charge} W, output {discharge} W) and capacity computed from the packs. Enter a value only to lower it, e.g. if the battery is on a weaker circuit.",
+            "data": {
+              "max_charge_power": "Maximum charge power (W, empty = Zendure app)",
+              "max_discharge_power": "Maximum discharge power (W, empty = Zendure app)",
+              "circuit_limit": "Electrical circuit limit (W, empty = none)",
+              "capacity": "Capacity (kWh, empty = computed from the packs)"
+            },
+            "data_description": {
+              "max_charge_power": "Empty = the limit set in the Zendure app. Enter a value only to charge more gently.",
+              "max_discharge_power": "Empty = the output limit set in the Zendure app. Enter a value only to supply less to the home.",
+              "circuit_limit": "If the battery is alone on a circuit protected by a small breaker, enter its capacity (10 A ≈ 2,300 W, 16 A ≈ 3,600 W). The battery will never exceed it. Empty = no limit.",
+              "capacity": "Empty = computed from the battery packs. Enter it only if the displayed capacity is wrong or unknown."
+            }
+          },
+          "advanced": {
+            "name": "Advanced regulation settings",
+            "description": "Defaults suit most installations.",
+            "data": {
+              "scan_interval": "Polling interval (s)",
+              "use_ram": "Write power commands to RAM (saves flash wear)",
+              "target_power": "Grid target (W, 0 = zero export)",
+              "import_limit": "Default grid import limit in Grid charge (W)",
+              "deadband": "Deadband (W)",
+              "min_interval": "Minimum delay between regulation steps (s)",
+              "fast_scan_interval": "Battery polling while regulating (s)"
+            },
+            "data_description": {
+              "scan_interval": "How often the battery is read when nothing happens (10 s by default). Shorter = more network requests.",
+              "use_ram": "Recommended. Setpoints change often; writing them to RAM avoids wearing out the battery's permanent memory.",
+              "target_power": "Value aimed for at the meter. 0 = neither draw nor export. Use e.g. 20 W to keep a small margin and never export.",
+              "import_limit": "In “Grid charge” mode: maximum power the home may draw from the grid, battery included. Charging slows down so the main breaker does not trip. Keep at least a 10 % margin.",
+              "deadband": "Meter deviation tolerated before correcting (25 W by default). Larger = fewer corrections, slightly less precise.",
+              "min_interval": "Minimum time between two corrections (1 s by default). Auto-tuning adapts it to your meter.",
+              "fast_scan_interval": "How often the battery is read while regulating (2 s by default)."
+            }
+          },
+          "priority": {
+            "name": "Priority order",
+            "description": "Only used with the “priority” strategy.",
+            "data": {
+              "priority_order_1": "Priority 1 (“priority” strategy)",
+              "priority_order_2": "Priority 2",
+              "priority_order_3": "Priority 3",
+              "priority_order_4": "Priority 4"
+            },
+            "data_description": {
+              "priority_order_1": "Only used with the “Priority” strategy: battery no. 1 works alone as long as it is enough, the next ones take over.",
+              "priority_order_2": "Battery used when no. 1 is at its maximum or its level limit.",
+              "priority_order_3": "Next battery (groups of 3 or 4).",
+              "priority_order_4": "Last battery (group of 4)."
+            }
+          },
+          "circuits": {
+            "name": "Shared circuits",
+            "description": "If several batteries are on the same electrical circuit, list them with the limit of that circuit.",
+            "data": {
+              "circuit_a_members": "Shared circuit A: batteries",
+              "circuit_a_limit": "Shared circuit A: output limit (W)",
+              "circuit_a_charge_limit": "Shared circuit A: charge limit (W, empty = same as output)",
+              "circuit_b_members": "Shared circuit B: batteries",
+              "circuit_b_limit": "Shared circuit B: output limit (W)",
+              "circuit_b_charge_limit": "Shared circuit B: charge limit (W, empty = same as output)"
+            },
+            "data_description": {
+              "circuit_a_members": "Batteries on the same electrical circuit (at least 2). Useful when only some batteries of the group share it.",
+              "circuit_a_limit": "Maximum circuit power while the batteries supply the home (W). Their total will never exceed it.",
+              "circuit_a_charge_limit": "Maximum circuit power while the batteries charge (W). Empty = same value as output.",
+              "circuit_b_members": "Second shared circuit, if any.",
+              "circuit_b_limit": "Output limit of the second circuit (W).",
+              "circuit_b_charge_limit": "Charge limit of the second circuit (W). Empty = same value as output."
+            }
+          }
+        },
+        "data_description": {
+          "grid_sensor": "Power sensor at the meter (W): positive when the home draws from the grid, negative when it exports. Required for the smart modes. Not needed on a group member: the group regulates.",
+          "invert_grid": "Tick only if your sensor is positive when the home exports to the grid.",
+          "solar_sensor": "Optional. Panel production (W), for the “Store solar” mode and the card.",
+          "min_soc": "The battery never goes below this level. Written to the battery, as in the Zendure app.",
+          "max_soc": "The battery never charges above this level. Written to the battery, as in the Zendure app.",
+          "members": "Batteries controlled by this group (2 to 4). Removing a battery gives it back the mode it had before joining."
+        }
       }
     },
     "error": {
@@ -354,6 +459,25 @@
     "member_left_group": {
       "title": "{battery} is no longer controlled by group {group}",
       "description": "The mode of battery {battery} was changed: it no longer follows group {group}, which keeps running without it. To put it back, choose the “Controlled by the group” mode on the battery."
+    }
+  },
+  "selector": {
+    "circuit_preset": {
+      "options": {
+        "600_1200": "600 W output / 1,200 W charge",
+        "600_2400": "600 W output / 2,400 W charge",
+        "800_1200": "800 W output / 1,200 W charge",
+        "800_2400": "800 W output / 2,400 W charge",
+        "1200": "1,200 W",
+        "2000": "2,000 W",
+        "2300": "2,300 W (10 A breaker)",
+        "2400": "2,400 W",
+        "3600": "3,600 W (16 A breaker)",
+        "4000": "4,000 W",
+        "4600": "4,600 W (20 A breaker)",
+        "5000": "5,000 W",
+        "custom": "Other: I enter the values"
+      }
     }
   }
 }

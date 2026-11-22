@@ -12,7 +12,7 @@
  *   show_history: true    # courbe des dernières 24 h
  *   show_flow: true       # schéma des flux d'énergie
  */
-const CARD_VERSION = "1.3.2";
+const CARD_VERSION = "1.4.0";
 const DOMAIN = "zendure_local";
 
 const I18N = {

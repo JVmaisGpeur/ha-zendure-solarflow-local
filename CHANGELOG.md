@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.4.0
+
+### Installation simplifiée
+- **Capteurs repris du tableau de bord Énergie** : à l'ajout, le capteur au compteur (avec son sens) et le capteur de production solaire sont pré-remplis avec ceux du tableau de bord Énergie de Home Assistant. Il suffit de valider.
+- **Limites de puissance lues sur la batterie** : par défaut, la charge et la décharge maximales sont celles réglées dans l'app Zendure (`chargeMaxLimit`, `inverseMaxPower`). Les options ne servent plus qu'à les réduire ; vide = app Zendure. L'ancienne valeur par défaut (3000 W) est traitée comme « non renseignée ».
+- **Options regroupées** : l'essentiel (niveaux de charge, capteurs) en premier ; limites, réglages avancés de la régulation, ordre de priorité et circuits partagés dans des sections repliées.
+- Le capteur au compteur est facultatif dans les options (inutile sur une batterie membre d'un groupe).
+
+### Explications
+- **Chaque réglage a son explication** sous le champ, à l'ajout comme dans « Configurer » (sections repliées comprises), en français et en anglais.
+- README : nouvelle section **Réglages expliqués**, écran par écran, avec les valeurs par défaut et quand les changer.
+
+### Circuit commun d'un groupe
+- À la création d'un groupe, l'assistant demande si les batteries sont **sur le même circuit électrique**. Si oui : limite choisie dans une liste inspirée des « groupes de fusible » de l'intégration officielle Zendure-HA (600 ou 800 W en sortie avec 1 200 ou 2 400 W en charge, 1 200 à 5 000 W, calibres 10 / 16 / 20 A) ou saisie libre.
+- La puissance est partagée entre les batteries selon la stratégie du groupe, sans jamais dépasser le circuit, en charge comme en décharge.
+- Les circuits partagés A / B ont maintenant une **limite en charge** distincte de la limite en sortie (vide = même valeur ; les circuits déjà réglés ne changent pas).
+
 ## v1.3.2
 
 ### Nouveautés

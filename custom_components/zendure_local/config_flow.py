@@ -17,6 +17,7 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_HOST
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -26,12 +27,16 @@ except ImportError:  # pragma: no cover - anciennes versions
     from homeassistant.components.zeroconf import ZeroconfServiceInfo
 
 from .api import ZendureApi, ZendureError
-from .discovery import async_find_batteries
+from .discovery import async_energy_sensors, async_find_batteries
 from .const import (
     CONF_CAPACITY,
+    CONF_CIRCUIT_A_CHARGE_LIMIT,
     CONF_CIRCUIT_A_LIMIT,
     CONF_CIRCUIT_A_MEMBERS,
+    CONF_CIRCUIT_B_CHARGE_LIMIT,
     CONF_CIRCUIT_B_LIMIT,
+    CIRCUIT_PRESET_CUSTOM,
+    CIRCUIT_PRESETS,
     CONF_CIRCUIT_B_MEMBERS,
     CONF_CIRCUIT_LIMIT,
     CONF_DEADBAND,
@@ -73,6 +78,7 @@ from .const import (
 
 CONF_SERIALS = "serials"
 CONF_CREATE_GROUP = "create_group"
+CONF_CIRCUIT_PRESET = "circuit_preset"
 DEFAULT_GROUP_NAME = "Batteries"
 PRIORITY_KEYS = [f"{CONF_PRIORITY}_{i}" for i in range(1, MAX_MEMBERS + 1)]
 
@@ -112,12 +118,44 @@ def _watts(vmin: int, vmax: int, step: int = 10) -> selector.NumberSelector:
     )
 
 
-def _regulation_fields(opts: dict[str, Any]) -> dict:
-    """Réglages de régulation : sur une batterie seule, ou sur le groupe (G3)."""
+SECTION_LIMITS = "limits"
+SECTION_ADVANCED = "advanced"
+SECTION_PRIORITY = "priority"
+SECTION_CIRCUITS = "circuits"
+SECTIONS = (SECTION_LIMITS, SECTION_ADVANCED, SECTION_PRIORITY, SECTION_CIRCUITS)
+
+
+def _flatten(user_input: dict[str, Any]) -> dict[str, Any]:
+    """Les sections repliables rangent leurs champs dans un sous-dictionnaire."""
+    data: dict[str, Any] = {}
+    for key, value in user_input.items():
+        if key in SECTIONS and isinstance(value, dict):
+            data.update(value)
+        else:
+            data[key] = value
+    return data
+
+
+def _collapsed(fields: dict) -> section:
+    return section(vol.Schema(fields), {"collapsed": True})
+
+
+def _sensor_fields(opts: dict[str, Any], required: bool = False) -> dict:
+    """Capteur au compteur, sens du signe, production solaire.
+
+    Obligatoire à l'ajout ; facultatif dans les options (inutile sur une batterie
+    membre d'un groupe, et les modes manuels s'en passent)."""
+    grid = vol.Required if required else vol.Optional
     return {
-        vol.Optional(CONF_GRID_SENSOR, description={"suggested_value": opts.get(CONF_GRID_SENSOR)}): _power_sensor(),
+        grid(CONF_GRID_SENSOR, description={"suggested_value": opts.get(CONF_GRID_SENSOR)}): _power_sensor(),
+        vol.Required(CONF_INVERT_GRID, default=bool(opts.get(CONF_INVERT_GRID, False))): bool,
         vol.Optional(CONF_SOLAR_SENSOR, description={"suggested_value": opts.get(CONF_SOLAR_SENSOR)}): _power_sensor(),
-        vol.Required(CONF_INVERT_GRID, default=opts.get(CONF_INVERT_GRID, False)): bool,
+    }
+
+
+def _advanced_fields(opts: dict[str, Any]) -> dict:
+    """Réglages fins de la régulation : les valeurs par défaut conviennent presque toujours."""
+    return {
         vol.Required(CONF_TARGET, default=opts.get(CONF_TARGET, DEFAULT_TARGET)): vol.All(
             vol.Coerce(int), vol.Range(min=-1000, max=1000)
         ),
@@ -185,6 +223,8 @@ class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
                     "group": make_group,
                     "name": (user_input.get(CONF_NAME) or "").strip() or DEFAULT_GROUP_NAME,
                 }
+                if make_group:
+                    return await self.async_step_circuit()
                 return await self.async_step_sensors()
 
         fields: dict = {
@@ -251,7 +291,7 @@ class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 name = user_input[CONF_NAME].strip()
                 self._pending = {"kind": "group", "name": name, "members": members}
-                return await self.async_step_sensors()
+                return await self.async_step_circuit()
         return self.async_show_form(
             step_id="group",
             data_schema=vol.Schema(
@@ -290,6 +330,46 @@ class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={"name": _title(self._report), "host": self._host or ""},
         )
 
+    async def async_step_circuit(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Groupe : les batteries sont-elles sur le même circuit électrique ?"""
+        return self.async_show_menu(step_id="circuit", menu_options=["circuit_separate", "circuit_shared"])
+
+    async def async_step_circuit_separate(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        self._pending.pop("circuit", None)
+        return await self.async_step_sensors()
+
+    async def async_step_circuit_shared(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Circuit commun : la somme des puissances des batteries ne le dépassera jamais."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            preset = user_input.get(CONF_CIRCUIT_PRESET, CIRCUIT_PRESET_CUSTOM)
+            out = user_input.get(CONF_CIRCUIT_A_LIMIT)
+            charge = user_input.get(CONF_CIRCUIT_A_CHARGE_LIMIT)
+            if preset in CIRCUIT_PRESETS and not out and not charge:
+                out, charge = CIRCUIT_PRESETS[preset]
+            if not out:
+                errors[CONF_CIRCUIT_A_LIMIT] = "circuit_limit"
+            else:
+                self._pending["circuit"] = (int(out), int(charge or out))
+                return await self.async_step_sensors()
+        return self.async_show_form(
+            step_id="circuit_shared",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_CIRCUIT_PRESET, default="3600"): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[*CIRCUIT_PRESETS, CIRCUIT_PRESET_CUSTOM],
+                            mode="dropdown",
+                            translation_key="circuit_preset",
+                        )
+                    ),
+                    vol.Optional(CONF_CIRCUIT_A_LIMIT): _watts(0, 20000),
+                    vol.Optional(CONF_CIRCUIT_A_CHARGE_LIMIT): _watts(0, 20000),
+                }
+            ),
+            errors=errors,
+        )
+
     async def async_step_sensors(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Capteur de puissance au compteur (obligatoire) et production solaire (facultative)."""
         if user_input is not None:
@@ -300,15 +380,11 @@ class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
             if user_input.get(CONF_SOLAR_SENSOR):
                 options[CONF_SOLAR_SENSOR] = user_input[CONF_SOLAR_SENSOR]
             return await self._async_finish(options)
+        # Pré-remplis d'après le tableau de bord Énergie, s'il est configuré
+        sugg = await async_energy_sensors(self.hass)
         return self.async_show_form(
             step_id="sensors",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_GRID_SENSOR): _power_sensor(),
-                    vol.Required(CONF_INVERT_GRID, default=False): bool,
-                    vol.Optional(CONF_SOLAR_SENSOR): _power_sensor(),
-                }
-            ),
+            data_schema=vol.Schema(_sensor_fields(sugg, required=True)),
         )
 
     async def _async_finish(self, options: dict[str, Any]) -> ConfigFlowResult:
@@ -356,6 +432,11 @@ class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     def _create_group(self, name: str, members: list[str], options: dict[str, Any]) -> ConfigFlowResult:
+        options = dict(options)
+        if circuit := self._pending.get("circuit"):
+            # Toutes les batteries du groupe sur un même circuit (circuit partagé A)
+            options[CONF_CIRCUIT_A_MEMBERS] = list(members)
+            options[CONF_CIRCUIT_A_LIMIT], options[CONF_CIRCUIT_A_CHARGE_LIMIT] = circuit
         return self.async_create_entry(
             title=name,
             data={CONF_ENTRY_TYPE: ENTRY_TYPE_GROUP, CONF_NAME: name, CONF_MEMBERS: members},
@@ -381,12 +462,14 @@ class ZendureOptionsFlow(OptionsFlow):
         errors: dict[str, str] = {}
         coordinator = self._coordinator()
         if user_input is not None:
-            data = dict(user_input)
+            data = _flatten(user_input)
             # Les niveaux de charge vont dans la batterie, pas dans les options
             min_soc, max_soc = data.pop(CONF_MIN_SOC, None), data.pop(CONF_MAX_SOC, None)
-            for key in (CONF_CIRCUIT_LIMIT, CONF_CAPACITY):
+            data.pop(CONF_MAX_POWER, None)  # ancienne option unique, remplacée
+            # Vide = valeur de l'app Zendure / pas de limite / capacité calculée
+            for key in (CONF_MAX_CHARGE_POWER, CONF_MAX_DISCHARGE_POWER, CONF_CIRCUIT_LIMIT, CONF_CAPACITY):
                 if not data.get(key):
-                    data.pop(key, None)  # vide = pas de limite / capacité calculée
+                    data.pop(key, None)
             if coordinator is not None:
                 props = coordinator.props
                 write = {}
@@ -403,44 +486,62 @@ class ZendureOptionsFlow(OptionsFlow):
                 return self.async_create_entry(data=data)
 
         opts = self.config_entry.options
-        old_max = opts.get(CONF_MAX_POWER, DEFAULT_MAX_POWER)
-        fields: dict = {}
+        main: dict = {}
+        app_charge = app_discharge = None
         if coordinator is not None:
             props = coordinator.props
-            cur_min = round((props.get("minSoc") or 100) / 10)
-            cur_max = round((props.get("socSet") or 1000) / 10)
-            fields[vol.Required(CONF_MIN_SOC, default=cur_min)] = selector.NumberSelector(
+            app_charge, app_discharge = coordinator.app_charge_limit, coordinator.app_discharge_limit
+            main[vol.Required(CONF_MIN_SOC, default=round((props.get("minSoc") or 100) / 10))] = selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=50, step=1, unit_of_measurement="%", mode="box")
             )
-            fields[vol.Required(CONF_MAX_SOC, default=cur_max)] = selector.NumberSelector(
+            main[vol.Required(CONF_MAX_SOC, default=round((props.get("socSet") or 1000) / 10))] = selector.NumberSelector(
                 selector.NumberSelectorConfig(min=70, max=100, step=1, unit_of_measurement="%", mode="box")
             )
+        main.update(_sensor_fields(opts))
+        def _power_opt(key: str):
+            # 3000 W était la valeur par défaut des versions précédentes : vide = app Zendure
+            v = opts.get(key, opts.get(CONF_MAX_POWER))
+            return None if v in (None, DEFAULT_MAX_POWER) else v
+
+        limits = {
+            # Vide = limites réglées dans l'app Zendure
+            vol.Optional(
+                CONF_MAX_CHARGE_POWER, description={"suggested_value": _power_opt(CONF_MAX_CHARGE_POWER)}
+            ): _watts(0, 5000),
+            vol.Optional(
+                CONF_MAX_DISCHARGE_POWER, description={"suggested_value": _power_opt(CONF_MAX_DISCHARGE_POWER)}
+            ): _watts(0, 5000),
+            vol.Optional(CONF_CIRCUIT_LIMIT, description={"suggested_value": opts.get(CONF_CIRCUIT_LIMIT)}): _watts(
+                0, 10000
+            ),
+            vol.Optional(CONF_CAPACITY, description={"suggested_value": opts.get(CONF_CAPACITY)}): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=100, step=0.01, unit_of_measurement="kWh", mode="box")
+            ),
+        }
+        advanced = {
+            vol.Required(CONF_SCAN_INTERVAL, default=opts.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)): vol.All(
+                vol.Coerce(int), vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL)
+            ),
+            vol.Required(CONF_USE_RAM, default=opts.get(CONF_USE_RAM, DEFAULT_USE_RAM)): bool,
+            **_advanced_fields(opts),
+        }
         schema = vol.Schema(
             {
-                **fields,
-                vol.Required(CONF_SCAN_INTERVAL, default=opts.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)): vol.All(
-                    vol.Coerce(int), vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL)
-                ),
-                # Z5 : deux limites distinctes, reprenant l'ancienne « puissance max »
-                vol.Required(CONF_MAX_CHARGE_POWER, default=opts.get(CONF_MAX_CHARGE_POWER, old_max)): vol.All(
-                    vol.Coerce(int), vol.Range(min=100, max=5000)
-                ),
-                vol.Required(CONF_MAX_DISCHARGE_POWER, default=opts.get(CONF_MAX_DISCHARGE_POWER, old_max)): vol.All(
-                    vol.Coerce(int), vol.Range(min=100, max=5000)
-                ),
-                # Z8 : limite du circuit électrique (vide = aucune)
-                vol.Optional(CONF_CIRCUIT_LIMIT, description={"suggested_value": opts.get(CONF_CIRCUIT_LIMIT)}): _watts(
-                    0, 10000
-                ),
-                # Z2 : capacité saisie si un pack est inconnu (vide = calculée)
-                vol.Optional(CONF_CAPACITY, description={"suggested_value": opts.get(CONF_CAPACITY)}): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=100, step=0.01, unit_of_measurement="kWh", mode="box")
-                ),
-                vol.Required(CONF_USE_RAM, default=opts.get(CONF_USE_RAM, DEFAULT_USE_RAM)): bool,
-                **_regulation_fields(opts),
+                **main,
+                vol.Required(SECTION_LIMITS): _collapsed(limits),
+                vol.Required(SECTION_ADVANCED): _collapsed(advanced),
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+        unknown = "—"
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "charge": f"{app_charge:.0f}" if app_charge else unknown,
+                "discharge": f"{app_discharge:.0f}" if app_discharge else unknown,
+            },
+        )
 
 
 class ZendureGroupOptionsFlow(OptionsFlow):
@@ -453,7 +554,7 @@ class ZendureGroupOptionsFlow(OptionsFlow):
         choices = _battery_choices(self.hass, exclude_group=entry.entry_id)
         valid = {c["value"] for c in choices}
         if user_input is not None:
-            data = dict(user_input)
+            data = _flatten(user_input)
             members = [m for m in data.get(CONF_MEMBERS) or [] if m in valid]
             if not MIN_MEMBERS <= len(members) <= MAX_MEMBERS:
                 errors[CONF_MEMBERS] = "members_count"
@@ -464,6 +565,9 @@ class ZendureGroupOptionsFlow(OptionsFlow):
                 if v and v in members and v not in order:
                     order.append(v)
             data[CONF_PRIORITY] = order
+            for ckey in (CONF_CIRCUIT_A_CHARGE_LIMIT, CONF_CIRCUIT_B_CHARGE_LIMIT):
+                if not data.get(ckey):
+                    data.pop(ckey, None)  # vide = même limite qu'en sortie
             for mkey, lkey in ((CONF_CIRCUIT_A_MEMBERS, CONF_CIRCUIT_A_LIMIT), (CONF_CIRCUIT_B_MEMBERS, CONF_CIRCUIT_B_LIMIT)):
                 circuit = [m for m in data.get(mkey) or [] if m in members]
                 data[mkey] = circuit
@@ -480,11 +584,20 @@ class ZendureGroupOptionsFlow(OptionsFlow):
         multi = selector.SelectSelector(selector.SelectSelectorConfig(options=choices, multiple=True, mode="list"))
         single = selector.SelectSelector(selector.SelectSelectorConfig(options=choices, mode="dropdown"))
         fields: dict = {vol.Required(CONF_MEMBERS, default=members_now): multi}
+        fields.update(_sensor_fields(opts))
+        priority: dict = {}
         for i, key in enumerate(PRIORITY_KEYS):
             suggested = order_now[i] if i < len(order_now) else None
-            fields[vol.Optional(key, description={"suggested_value": suggested})] = single
-        for mkey, lkey in ((CONF_CIRCUIT_A_MEMBERS, CONF_CIRCUIT_A_LIMIT), (CONF_CIRCUIT_B_MEMBERS, CONF_CIRCUIT_B_LIMIT)):
-            fields[vol.Optional(mkey, description={"suggested_value": opts.get(mkey) or []})] = multi
-            fields[vol.Optional(lkey, description={"suggested_value": opts.get(lkey)})] = _watts(0, 20000)
-        fields.update(_regulation_fields(opts))
+            priority[vol.Optional(key, description={"suggested_value": suggested})] = single
+        circuits: dict = {}
+        for mkey, lkey, ckey in (
+            (CONF_CIRCUIT_A_MEMBERS, CONF_CIRCUIT_A_LIMIT, CONF_CIRCUIT_A_CHARGE_LIMIT),
+            (CONF_CIRCUIT_B_MEMBERS, CONF_CIRCUIT_B_LIMIT, CONF_CIRCUIT_B_CHARGE_LIMIT),
+        ):
+            circuits[vol.Optional(mkey, description={"suggested_value": opts.get(mkey) or []})] = multi
+            circuits[vol.Optional(lkey, description={"suggested_value": opts.get(lkey)})] = _watts(0, 20000)
+            circuits[vol.Optional(ckey, description={"suggested_value": opts.get(ckey)})] = _watts(0, 20000)
+        fields[vol.Required(SECTION_PRIORITY)] = _collapsed(priority)
+        fields[vol.Required(SECTION_CIRCUITS)] = _collapsed(circuits)
+        fields[vol.Required(SECTION_ADVANCED)] = _collapsed(_advanced_fields(opts))
         return self.async_show_form(step_id="init", data_schema=vol.Schema(fields), errors=errors)

@@ -120,3 +120,45 @@ async def async_find_batteries(hass: HomeAssistant) -> list[FoundBattery]:
     if not found:
         found = await _async_probe_all(session, await _async_subnet_hosts(hass))
     return sorted(found, key=lambda b: tuple(int(p) for p in b.host.split(".")))
+
+
+async def async_energy_sensors(hass: HomeAssistant) -> dict[str, Any]:
+    """Capteurs de puissance déclarés dans le tableau de bord Énergie de HA.
+
+    Retourne {grid_sensor, invert_grid, solar_sensor} pour ce qui est trouvé.
+    Convention HA : la puissance réseau est positive quand la maison soutire,
+    comme ici. Un capteur à deux sens séparés (de / vers le réseau) est ignoré.
+    """
+    found: dict[str, Any] = {}
+    try:
+        from homeassistant.components.energy.data import async_get_manager
+
+        manager = await async_get_manager(hass)
+        sources = (manager.data or {}).get("energy_sources", []) if manager else []
+    except Exception as err:  # noqa: BLE001 - tableau Énergie absent ou format inattendu
+        _LOGGER.debug("Tableau Énergie illisible : %s", err)
+        return found
+    for src in sources:
+        kind = src.get("type")
+        power = src.get("power_config") or {}
+        if kind == "grid" and "grid_sensor" not in found:
+            # Signe inversé : « stat_rate_negate » (booléen) ; certaines versions
+            # rangent à la place l'entité dans « stat_rate_inverted ».
+            negate = bool(power.get("stat_rate_negate") or src.get("stat_rate_negate"))
+            rate = power.get("stat_rate") or src.get("stat_rate")
+            inverted = power.get("stat_rate_inverted")
+            if rate:
+                found["grid_sensor"], found["invert_grid"] = rate, negate
+            elif isinstance(inverted, str) and inverted:
+                found["grid_sensor"], found["invert_grid"] = inverted, True
+        elif kind == "solar" and "solar_sensor" not in found:
+            rate = src.get("stat_rate") or power.get("stat_rate")
+            if rate:
+                found["solar_sensor"] = rate
+    # On ne propose que des entités qui existent encore
+    for key in ("grid_sensor", "solar_sensor"):
+        if key in found and hass.states.get(found[key]) is None:
+            del found[key]
+    if "grid_sensor" not in found:
+        found.pop("invert_grid", None)
+    return found

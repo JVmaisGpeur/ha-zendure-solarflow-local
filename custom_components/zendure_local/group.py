@@ -20,8 +20,10 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from . import dispatch as dsp
 from .const import (
+    CONF_CIRCUIT_A_CHARGE_LIMIT,
     CONF_CIRCUIT_A_LIMIT,
     CONF_CIRCUIT_A_MEMBERS,
+    CONF_CIRCUIT_B_CHARGE_LIMIT,
     CONF_CIRCUIT_B_LIMIT,
     CONF_CIRCUIT_B_MEMBERS,
     CONF_ENTRY_TYPE,
@@ -235,14 +237,18 @@ class ZendureGroupHub:
     def _circuits(self) -> list[dsp.Circuit]:
         opts = self.config_entry.options
         out = []
-        for mkey, lkey in ((CONF_CIRCUIT_A_MEMBERS, CONF_CIRCUIT_A_LIMIT), (CONF_CIRCUIT_B_MEMBERS, CONF_CIRCUIT_B_LIMIT)):
+        for mkey, lkey, ckey in (
+            (CONF_CIRCUIT_A_MEMBERS, CONF_CIRCUIT_A_LIMIT, CONF_CIRCUIT_A_CHARGE_LIMIT),
+            (CONF_CIRCUIT_B_MEMBERS, CONF_CIRCUIT_B_LIMIT, CONF_CIRCUIT_B_CHARGE_LIMIT),
+        ):
             members = set(opts.get(mkey) or [])
             try:
                 limit = float(opts.get(lkey) or 0)
+                charge = float(opts.get(ckey) or 0) or None
             except (TypeError, ValueError):
-                limit = 0.0
+                limit, charge = 0.0, None
             if len(members) >= 2 and limit > 0:
-                out.append(dsp.Circuit(members, limit))
+                out.append(dsp.Circuit(members, limit, charge))
         return out
 
     def _priority(self) -> list[str]:

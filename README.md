@@ -24,11 +24,77 @@ Ne fonctionne **pas** avec : Hyper 2000, Hub 1200/2000, AIO 2400, Ace 1500 (pas 
    - **Ajouter une batterie par son adresse IP**, si elle n'a pas été trouvée ;
    - **Créer un groupe de batteries**, dès que deux batteries sont ajoutées.
 
-   L'assistant demande ensuite le **capteur de puissance au compteur** (obligatoire : positif quand la maison soutire, négatif quand elle injecte) et, en facultatif, le **capteur de production solaire**. La carte n'a plus rien à demander. Tout se modifie ensuite dans **Configurer**.
+   L'assistant demande ensuite le **capteur de puissance au compteur** (obligatoire : positif quand la maison soutire, négatif quand elle injecte) et, en facultatif, le **capteur de production solaire**. Si le **tableau de bord Énergie** de Home Assistant est configuré, ces deux champs sont déjà remplis avec ses capteurs : il suffit de valider. La carte n'a plus rien à demander.
+
+   Le reste vient de la batterie : niveaux de charge, limites de puissance réglées dans l'app Zendure, capacité calculée d'après les packs. Dans **Configurer**, seul l'essentiel est affiché ; les réglages fins sont dans des sections repliées.
 
 Installation manuelle : copier `custom_components/zendure_local` dans `config/custom_components/` puis redémarrer.
 
 L'interface (entités, options, alertes, carte) est en **français** et en **anglais**, selon la langue de Home Assistant.
+
+## Réglages expliqués
+
+La plupart des réglages ont une valeur par défaut qui convient. Chaque champ a aussi une explication courte, affichée sous le champ dans Home Assistant.
+
+### À l'ajout
+
+| Écran | Réglage | À quoi ça sert |
+|---|---|---|
+| Batteries trouvées | **Batteries** | Les batteries trouvées sur ton réseau. Décoche celles à ne pas gérer. |
+| | **Créer un groupe** | Réunit les batteries sous un seul mode, avec la charge et la décharge réparties entre elles. **Indispensable si elles sont sur le même compteur**, sinon elles se contredisent. |
+| Adresse IP | **Adresse IP** | Seulement si la batterie n'a pas été trouvée. Réserve-lui une IP fixe dans ta box. |
+| Circuit électrique | **Chacune sur son propre circuit / Toutes sur le même circuit** | Groupe uniquement. Si les batteries partagent un disjoncteur, leur puissance totale est limitée pour ne jamais le dépasser. |
+| Circuit commun | **Limite du circuit** | Choisis le calibre du disjoncteur (16 A ≈ 3 600 W). Les valeurs « en sortie / en charge » sont les limites de prise de certains pays. Les champs en W servent si ta valeur n'est pas dans la liste. |
+| Capteurs | **Capteur de puissance au compteur** | Ce qui entre dans la maison depuis le réseau (positif) ou en sort (négatif), par exemple la phase du Shelly Pro 3EM sur l'arrivée. La régulation essaie de le ramener à 0. Pré-rempli depuis le tableau de bord Énergie. |
+| | **Inverser le signe** | Seulement si ton capteur est positif quand la maison **renvoie** du courant. |
+| | **Capteur de production solaire** | Facultatif. Sert au mode « Stocker le solaire » et à la carte. |
+
+### Configurer (batterie ou groupe)
+
+**En haut, l'essentiel :**
+
+| Réglage | À quoi ça sert |
+|---|---|
+| **Niveau de charge minimum / maximum** | Batterie seule. La batterie ne descend jamais sous le minimum et ne monte jamais au-dessus du maximum. Écrit dans la batterie, comme dans l'app Zendure. |
+| **Batteries du groupe** | Groupe seul. Retirer une batterie lui rend son mode d'avant. |
+| **Capteurs** | Les mêmes qu'à l'ajout. Inutiles sur une batterie membre d'un groupe : c'est le groupe qui régule. |
+
+**Section « Limites de puissance et capacité »** (batterie). Laisser vide = suivre la batterie.
+
+| Réglage | Vide = | Quand le remplir |
+|---|---|---|
+| **Puissance de charge maximale** | limite de l'app Zendure | pour charger moins fort |
+| **Puissance de décharge maximale** | limite de sortie de l'app Zendure | pour fournir moins à la maison |
+| **Limite du circuit** | aucune | batterie seule sur un petit disjoncteur (10 A ≈ 2 300 W) |
+| **Capacité** | calculée d'après les packs | capacité affichée fausse ou alerte « Capacité inconnue » |
+
+**Section « Réglages avancés de la régulation »** : les valeurs par défaut conviennent presque toujours.
+
+| Réglage | Défaut | Effet |
+|---|---|---|
+| **Cible au compteur** | 0 W | Valeur visée au compteur. 20 W par exemple garde une petite marge pour ne jamais injecter. |
+| **Limite de soutirage** | 6 000 W | En « Charge réseau », puissance maximale prise au réseau, maison comprise. Garde **au moins 10 %** de marge sur ton abonnement. |
+| **Zone morte** | 25 W | Écart toléré avant de corriger. Plus grand = moins de corrections. |
+| **Délai minimum entre deux calculs** | 1 s | Adapté automatiquement par l'auto-réglage. |
+| **Lecture pendant la régulation** | 2 s | Fréquence de lecture de la batterie quand elle régule. |
+| **Intervalle de lecture** | 10 s | Fréquence de lecture au repos. |
+| **Écrire en RAM** | oui | Évite d'user la mémoire permanente de la batterie. À laisser coché. |
+
+**Sections propres au groupe :**
+
+| Réglage | À quoi ça sert |
+|---|---|
+| **Ordre de priorité** | Seulement avec la stratégie « Priorité » : la n°1 travaille seule tant qu'elle suffit, puis les suivantes prennent le relais. |
+| **Circuits partagés A / B** | Quand **seulement certaines** batteries partagent un circuit (groupe de 3 ou 4). Pour chaque circuit : ses batteries, sa limite en sortie et sa limite en charge (vide = même valeur). |
+
+### Dans la carte ou les entités (réglables à tout moment)
+
+| Entité | À quoi ça sert |
+|---|---|
+| **Mode de fonctionnement** | Voir [Modes de fonctionnement](#modes-de-fonctionnement). Sur un groupe, un seul choix pour toutes les batteries. |
+| **Stratégie** (groupe) | Répartition entre les batteries : **Équilibrage des SOC** (par défaut, les niveaux convergent), **Simultanée** (au prorata de la puissance de chacune), **Priorité** (dans l'ordre choisi). |
+| **Consigne de puissance** | Mode manuel : + fournit à la maison, − charge. La régler passe en mode manuel. |
+| **Limite de soutirage / SOC cible de charge** | Mode « Charge réseau ». Voir ci-dessous. |
 
 ## Modes de fonctionnement
 
@@ -43,7 +109,7 @@ L'interface (entités, options, alertes, carte) est en **français** et en **ang
 | **Charge réseau** (`grid_charge`) | Charge sur le réseau sans dépasser la **limite de soutirage**, jusqu'au **SOC cible de charge** |
 | **Pilotée par le groupe** (`group`) | Batterie membre d'un groupe : c'est le groupe qui la commande |
 
-Les modes automatiques ont besoin d'un **capteur réseau** (Configurer → « Capteur réseau »), par exemple la phase A d'un Shelly Pro 3EM : **positif quand on soutire, négatif quand on injecte** (sinon cocher « Inverser le signe »).
+Les modes automatiques ont besoin du **capteur de puissance au compteur** (demandé à l'ajout, modifiable dans Configurer), par exemple la phase A d'un Shelly Pro 3EM : **positif quand on soutire, négatif quand on injecte** (sinon cocher « Inverser le signe »).
 
 L'intégration ne gère **aucun tarif** (heures pleines / creuses, Tempo…) : ce sont tes automatisations qui changent le mode.
 
@@ -99,9 +165,10 @@ Plusieurs batteries sur le même compteur ne doivent pas réguler chacune de leu
 
 ## Limites de puissance et circuits
 
-- **Puissance de charge / décharge maximale** : options de chaque batterie.
+- **Puissance de charge / décharge maximale** : par défaut, celles réglées dans l'**app Zendure** (lues sur la batterie). Les options (section « Limites de puissance et capacité ») ne servent qu'à les réduire.
 - **Limite du circuit** (W) : si la batterie est branchée sur un circuit limité (équivalent des « groupes de fusible » de Zendure-HA, par exemple 1200 W), elle ne le dépassera jamais.
-- **Circuits partagés** (options du groupe) : plusieurs batteries sur le même circuit avec une limite commune.
+- **Circuit commun d'un groupe** : à la création du groupe, l'assistant demande si les batteries sont sur le même circuit électrique. Si oui, on choisit la limite dans une liste (reprise des « groupes de fusible » de l'intégration officielle : 800 W en sortie / 1 200 W en charge, 1 200 W, 2 400 W, 3 600 W pour un disjoncteur 16 A…) ou on saisit ses valeurs. La puissance est alors partagée entre les batteries, selon la stratégie du groupe, pour que leur total ne dépasse jamais le circuit ; ce qu'une batterie ne peut pas prendre est reporté sur les autres.
+- **Circuits partagés** (options du groupe, section repliée) : jusqu'à deux circuits A et B, chacun avec ses batteries, sa limite en sortie et sa limite en charge (vide = même valeur). Utile quand seulement certaines batteries partagent un circuit.
 - Les limites annoncées par la batterie elle-même (puissance max, réduction en cas de chaleur) sont aussi respectées.
 
 Les capteurs **Puissance de charge max** et **Puissance de décharge max** affichent la limite réellement appliquée.

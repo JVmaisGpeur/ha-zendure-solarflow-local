@@ -24,11 +24,77 @@ Does **not** work with: Hyper 2000, Hub 1200/2000, AIO 2400, Ace 1500 (no local 
    - **Add a battery by its IP address**, if it was not found;
    - **Create a battery group**, as soon as two batteries are added.
 
-   The wizard then asks for the **power sensor at the meter** (required: positive when the home draws from the grid, negative when it exports) and, optionally, the **solar production sensor**. The card has nothing left to ask. Everything can be changed later in **Configure**.
+   The wizard then asks for the **power sensor at the meter** (required: positive when the home draws from the grid, negative when it exports) and, optionally, the **solar production sensor**. If Home Assistant's **Energy dashboard** is set up, both fields are already filled with its sensors: just confirm. The card has nothing left to ask.
+
+   Everything else comes from the battery: charge levels, power limits set in the Zendure app, capacity computed from the packs. **Configure** shows only the essentials; fine settings are in collapsed sections.
 
 Manual installation: copy `custom_components/zendure_local` into `config/custom_components/` and restart.
 
 The interface (entities, options, alerts, card) is in **English** and **French**, following Home Assistant's language.
+
+## Settings explained
+
+Most settings have a default that suits. Each field also has a short explanation shown under it in Home Assistant.
+
+### When adding
+
+| Screen | Setting | What it does |
+|---|---|---|
+| Batteries found | **Batteries** | Batteries found on your network. Untick those not to manage. |
+| | **Create a group** | One mode for all the batteries, with charging and discharging shared between them. **Essential if they are on the same meter**, otherwise they fight each other. |
+| IP address | **IP address** | Only if the battery was not found. Reserve a fixed IP for it in your router. |
+| Electrical circuit | **Each on its own circuit / All on the same circuit** | Groups only. If the batteries share a breaker, their total power is limited so it never exceeds it. |
+| Shared circuit | **Circuit limit** | Choose the breaker rating (16 A ≈ 3,600 W). The “output / charge” values are plug limits used in some countries. The W fields are for a value not in the list. |
+| Sensors | **Power sensor at the meter** | What enters the home from the grid (positive) or leaves it (negative), e.g. the Shelly Pro 3EM phase on the incoming supply. The regulation tries to bring it to 0. Pre-filled from the Energy dashboard. |
+| | **Invert sign** | Only if your sensor is positive when the home **exports**. |
+| | **Solar production sensor** | Optional. Used by the “Store solar” mode and the card. |
+
+### Configure (battery or group)
+
+**At the top, the essentials:**
+
+| Setting | What it does |
+|---|---|
+| **Minimum / maximum charge level** | Single battery. The battery never goes below the minimum nor above the maximum. Written to the battery, as in the Zendure app. |
+| **Group batteries** | Group only. Removing a battery gives it back its previous mode. |
+| **Sensors** | Same as when adding. Not needed on a group member: the group regulates. |
+
+**“Power limits and capacity” section** (battery). Empty = follow the battery.
+
+| Setting | Empty = | When to fill it |
+|---|---|---|
+| **Maximum charge power** | Zendure app limit | to charge more gently |
+| **Maximum discharge power** | Zendure app output limit | to supply less to the home |
+| **Circuit limit** | none | battery alone on a small breaker (10 A ≈ 2,300 W) |
+| **Capacity** | computed from the packs | wrong capacity or “Unknown capacity” alert |
+
+**“Advanced regulation settings” section**: defaults almost always suit.
+
+| Setting | Default | Effect |
+|---|---|---|
+| **Target at the meter** | 0 W | Value aimed for at the meter. E.g. 20 W keeps a small margin to never export. |
+| **Import limit** | 6,000 W | In “Grid charge”, maximum power drawn from the grid, home included. Keep **at least 10 %** margin on your contract. |
+| **Deadband** | 25 W | Deviation tolerated before correcting. Larger = fewer corrections. |
+| **Minimum delay between two calculations** | 1 s | Adapted automatically by auto-tuning. |
+| **Reading while regulating** | 2 s | How often the battery is read while regulating. |
+| **Scan interval** | 10 s | How often it is read at rest. |
+| **Write to RAM** | yes | Avoids wearing out the battery's permanent memory. Leave ticked. |
+
+**Group-only sections:**
+
+| Setting | What it does |
+|---|---|
+| **Priority order** | Only with the “Priority” strategy: no. 1 works alone as long as it is enough, then the next ones take over. |
+| **Shared circuits A / B** | When **only some** batteries share a circuit (group of 3 or 4). For each circuit: its batteries, output limit and charge limit (empty = same value). |
+
+### In the card or the entities (changeable at any time)
+
+| Entity | What it does |
+|---|---|
+| **Operating mode** | See [Operating modes](#operating-modes). On a group, one choice for all batteries. |
+| **Strategy** (group) | How power is shared: **SOC balance** (default, levels converge), **Simultaneous** (in proportion to each one's power), **Priority** (in the chosen order). |
+| **Power setpoint** | Manual mode: + supplies the home, − charges. Setting it switches to manual mode. |
+| **Import limit / Charge target SOC** | “Grid charge” mode. See below. |
 
 ## Operating modes
 
@@ -43,7 +109,7 @@ The interface (entities, options, alerts, card) is in **English** and **French**
 | **Grid charge** (`grid_charge`) | Charges from the grid without exceeding the **grid import limit**, up to the **charge target SOC** |
 | **Controlled by the group** (`group`) | Battery belonging to a group: the group controls it |
 
-Automatic modes need a **grid sensor** (Configure → “Grid sensor”), e.g. Shelly Pro 3EM phase A: **positive when importing, negative when exporting** (otherwise tick “Invert sensor sign”).
+Automatic modes need the **power sensor at the meter** (asked when adding, changeable in Configure), e.g. Shelly Pro 3EM phase A: **positive when importing, negative when exporting** (otherwise tick “Invert sensor sign”).
 
 The integration handles **no tariffs** (peak / off-peak, Tempo…): your automations change the mode.
 
@@ -99,9 +165,10 @@ Several batteries on the same meter must not regulate on their own: they would f
 
 ## Power limits and circuits
 
-- **Maximum charge / discharge power**: options of each battery.
+- **Maximum charge / discharge power**: by default, those set in the **Zendure app** (read from the battery). The options (“Power limits and capacity” section) only lower them.
 - **Circuit limit** (W): if the battery is plugged on a limited circuit (like Zendure-HA “fuse groups”, e.g. 1200 W), it will never exceed it.
-- **Shared circuits** (group options): several batteries on the same circuit with a common limit.
+- **Common circuit of a group**: when creating the group, the wizard asks whether the batteries are on the same electrical circuit. If so, pick the limit from a list (taken from the official integration's “fuse groups”: 800 W output / 1,200 W charge, 1,200 W, 2,400 W, 3,600 W for a 16 A breaker…) or enter your own values. Power is then shared between the batteries, following the group strategy, so their total never exceeds the circuit; what one battery cannot take goes to the others.
+- **Shared circuits** (group options, collapsed section): up to two circuits A and B, each with its batteries, output limit and charge limit (empty = same value). Useful when only some batteries share a circuit.
 - Limits reported by the battery itself (maximum power, thermal derating) are respected too.
 
 The **Max charge power** and **Max discharge power** sensors show the limit actually applied.

@@ -33,7 +33,7 @@ def check(parts, members, total, circuits=()):
     assert sum(abs(v) for v in parts.values()) <= abs(total) + 1e-6, f"G9 total {parts} > {total}"
     for c in circuits:
         used = sum(abs(parts[i]) for i in c.members if i in parts)
-        assert used <= c.limit + 1e-6, f"G12 circuit {used} > {c.limit}"
+        assert used <= c.limit_for(sign) + 1e-6, f"G12 circuit {used} > {c.limit_for(sign)}"
 
 
 def test_simultaneous_prorata():
@@ -104,6 +104,20 @@ def test_shared_circuit():
     assert d.capability(ms, 1, circ) == 4200
 
 
+def test_circuit_charge_discharge_differ():
+    """Circuit « 800 W en sortie / 1200 W en charge » (comme les groupes de fusible Zendure)."""
+    ms = [M("ac+", soc=70, max_charge=2400, max_discharge=2400, capacity=12),
+          M("ac", soc=40, max_charge=2400, max_discharge=2400, capacity=8.64)]
+    circ = [C({"ac+", "ac"}, 800, 1200)]
+    out = d.dispatch(2000, ms, d.SOC_BALANCE, None, circ)
+    check(out, ms, 2000, circ)
+    assert 780 <= sum(out.values()) <= 800 and out["ac+"] > out["ac"] > 0, out
+    inn = d.dispatch(-3000, ms, d.SOC_BALANCE, None, circ)
+    check(inn, ms, -3000, circ)
+    assert -1200 <= sum(inn.values()) <= -1180 and inn["ac"] < inn["ac+"] < 0, inn
+    assert d.capability(ms, 1, circ) == 800 and d.capability(ms, -1, circ) == 1200
+
+
 def test_random_invariants():
     rnd = random.Random(7)
     for _ in range(3000):
@@ -115,7 +129,7 @@ def test_random_invariants():
             for i in range(n)
         ]
         ids = [m.id for m in ms]
-        circ = [C(set(rnd.sample(ids, 2)), rnd.choice([800, 1500, 3000]))] if rnd.random() > 0.5 else []
+        circ = [C(set(rnd.sample(ids, 2)), rnd.choice([800, 1500, 3000]), rnd.choice([None, 1200, 2400]))] if rnd.random() > 0.5 else []
         total = rnd.uniform(-8000, 8000)
         for strat in (d.SIMULTANEOUS, d.SOC_BALANCE, d.PRIORITY):
             p = d.dispatch(total, ms, strat, ids[::-1], circ)

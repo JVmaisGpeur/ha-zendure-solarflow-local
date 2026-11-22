@@ -37,7 +37,13 @@ class Member:
 @dataclass
 class Circuit:
     members: set[str] = field(default_factory=set)
-    limit: float = 0.0  # W, en charge comme en décharge
+    limit: float = 0.0  # W en décharge (sortie vers la maison)
+    charge_limit: float | None = None  # W en charge ; None = même valeur que limit
+
+    def limit_for(self, sign: int) -> float:
+        if sign < 0 and self.charge_limit:
+            return self.charge_limit
+        return self.limit
 
 
 def _cap(m: Member, sign: int) -> float:
@@ -82,14 +88,15 @@ def _fill(amount: float, ids: list[str], caps: dict[str, float], weights: dict[s
     return parts
 
 
-def _apply_circuits(parts: dict[str, float], caps: dict[str, float], circuits: list[Circuit]) -> bool:
+def _apply_circuits(parts: dict[str, float], caps: dict[str, float], circuits: list[Circuit], sign: int) -> bool:
     """Réduit les parts des circuits en dépassement ; gèle leurs plafonds. Vrai si changement."""
     changed = False
     for c in circuits:
         ids = [i for i in parts if i in c.members]
         used = sum(parts[i] for i in ids)
-        if c.limit > 0 and used > c.limit + 1e-6:
-            k = c.limit / used
+        limit = c.limit_for(sign)
+        if limit > 0 and used > limit + 1e-6:
+            k = limit / used
             for i in ids:
                 parts[i] *= k
                 caps[i] = parts[i]
@@ -116,14 +123,14 @@ def dispatch(
         return result
     sign = 1 if total > 0 else -1
     amount = abs(total)
-    circuits = [c for c in (circuits or []) if c.limit > 0 and c.members]
+    circuits = [c for c in (circuits or []) if c.limit_for(sign) > 0 and c.members]
     by_id = {m.id: m for m in members}
     caps = {m.id: _cap(m, sign) for m in members}
 
     if strategy == PRIORITY:
         order = [i for i in (priority_order or []) if i in by_id]
         order += [m.id for m in members if m.id not in order]
-        circuit_left = [c.limit for c in circuits]
+        circuit_left = [c.limit_for(sign) for c in circuits]
         parts = {i: 0.0 for i in order}
         remaining = amount
         for i in order:
@@ -145,7 +152,7 @@ def dispatch(
         parts = _fill(amount, ids, caps, weights)
         # Circuits partagés : on réduit, on gèle, et on reporte le reste sur les autres
         for _ in range(len(circuits) + 2):
-            if not _apply_circuits(parts, caps, circuits):
+            if not _apply_circuits(parts, caps, circuits, sign):
                 break
             left = amount - sum(parts.values())
             if left <= 1e-6:

@@ -36,6 +36,25 @@ CONF_CIRCUIT_A_MEMBERS = "circuit_a_members"
 CONF_CIRCUIT_A_LIMIT = "circuit_a_limit"
 CONF_CIRCUIT_B_MEMBERS = "circuit_b_members"
 CONF_CIRCUIT_B_LIMIT = "circuit_b_limit"
+CONF_CIRCUIT_A_CHARGE_LIMIT = "circuit_a_charge_limit"
+CONF_CIRCUIT_B_CHARGE_LIMIT = "circuit_b_charge_limit"
+# Circuits les plus courants : (sortie W, charge W). Repris des « groupes de fusible »
+# de l'intégration officielle Zendure-HA, plus les calibres français 10 / 16 / 20 A.
+CIRCUIT_PRESETS: dict[str, tuple[int, int]] = {
+    "600_1200": (600, 1200),
+    "600_2400": (600, 2400),
+    "800_1200": (800, 1200),
+    "800_2400": (800, 2400),
+    "1200": (1200, 1200),
+    "2000": (2000, 2000),
+    "2300": (2300, 2300),
+    "2400": (2400, 2400),
+    "3600": (3600, 3600),
+    "4000": (4000, 4000),
+    "4600": (4600, 4600),
+    "5000": (5000, 5000),
+}
+CIRCUIT_PRESET_CUSTOM = "custom"
 DATA_PREVIOUS_MODES = "previous_modes"
 MIN_MEMBERS, MAX_MEMBERS = 2, 4
 

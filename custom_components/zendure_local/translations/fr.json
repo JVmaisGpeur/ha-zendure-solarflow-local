@@ -18,6 +18,11 @@
           "serials": "Batteries",
           "create_group": "Créer un groupe avec ces batteries (un seul mode pour toutes)",
           "name": "Nom du groupe"
+        },
+        "data_description": {
+          "serials": "Batteries trouvées sur ton réseau et pas encore ajoutées. Décoche celles que tu ne veux pas gérer ici.",
+          "create_group": "Coché : les batteries cochées formeront un groupe. Tu choisiras un seul mode pour toutes, et la charge comme la décharge seront réparties entre elles. Indispensable si elles sont sur le même compteur, sinon elles se contrediraient.",
+          "name": "Nom de l'appareil « groupe » dans Home Assistant (par exemple « Batteries »)."
         }
       },
       "zeroconf_confirm": {
@@ -29,6 +34,9 @@
         "description": "Adresse IP de la batterie. L'API locale doit être activée dans l'app Zendure (paramètre « HEMS » / API locale).",
         "data": {
           "host": "Adresse IP"
+        },
+        "data_description": {
+          "host": "Adresse IP locale de la batterie, par exemple 192.168.1.50. Tu la trouves dans l'app Zendure ou sur ta box. Pense à lui réserver une IP fixe dans ta box."
         }
       },
       "group": {
@@ -37,15 +45,46 @@
         "data": {
           "name": "Nom du groupe",
           "members": "Batteries du groupe"
+        },
+        "data_description": {
+          "name": "Nom de l'appareil « groupe » dans Home Assistant.",
+          "members": "De 2 à 4 batteries déjà ajoutées. Une batterie ne peut appartenir qu'à un seul groupe."
         }
       },
       "sensors": {
         "title": "Capteurs",
-        "description": "Le capteur de puissance au compteur sert à la régulation : positif quand la maison soutire au réseau, négatif quand elle injecte. Si ton capteur fait l'inverse, coche « Inverser le signe ». Le capteur de production solaire est facultatif : il sert au mode « Stocker le solaire » et à la carte. Tout se modifie ensuite dans « Configurer ».",
+        "description": "Capteur de puissance au compteur : positif quand la maison soutire au réseau, négatif quand elle injecte. Si ton capteur fait l'inverse, coche « Inverser le signe ». Le capteur de production solaire est facultatif. Quand le tableau de bord Énergie de Home Assistant est configuré, ces champs sont déjà remplis avec ses capteurs : il suffit de valider.",
         "data": {
           "grid_sensor": "Capteur de puissance au compteur (W)",
           "invert_grid": "Inverser le signe du capteur",
           "solar_sensor": "Capteur de production solaire (W, facultatif)"
+        },
+        "data_description": {
+          "grid_sensor": "Capteur de puissance (W) qui mesure ce qui entre dans la maison depuis le réseau ou en sort : par exemple la phase du Shelly Pro 3EM placée sur l'arrivée EDF. C'est lui que la régulation essaie de ramener à 0.",
+          "invert_grid": "À cocher seulement si ton capteur affiche une valeur négative quand la maison consomme sur le réseau (positif = injection).",
+          "solar_sensor": "Facultatif. Puissance produite par tes panneaux (W). Sert au mode « Stocker le solaire » et à l'affichage dans la carte."
+        }
+      },
+      "circuit": {
+        "title": "Circuit électrique",
+        "description": "Les batteries du groupe sont-elles branchées sur le même circuit électrique (même disjoncteur) ? Si oui, leur puissance totale sera partagée pour ne jamais dépasser ce circuit. Si seulement certaines le sont, choisis « Chacune sur son propre circuit » puis règle les circuits partagés dans « Configurer ».",
+        "menu_options": {
+          "circuit_separate": "Chacune sur son propre circuit",
+          "circuit_shared": "Toutes sur le même circuit"
+        }
+      },
+      "circuit_shared": {
+        "title": "Circuit commun",
+        "description": "Choisis la limite du circuit. La puissance est partagée entre les batteries (selon la stratégie du groupe) pour que leur total ne la dépasse jamais, en charge comme en décharge. Les champs en W remplacent le choix de la liste s'ils sont remplis.",
+        "data": {
+          "circuit_preset": "Limite du circuit",
+          "circuit_a_limit": "Ou limite en sortie (W)",
+          "circuit_a_charge_limit": "Limite en charge (W, vide = même valeur)"
+        },
+        "data_description": {
+          "circuit_preset": "Le plus simple : choisis le calibre du disjoncteur qui protège ce circuit (16 A = 3 600 W). Les valeurs « en sortie / en charge » correspondent aux limites légales de certains pays pour les prises.",
+          "circuit_a_limit": "Facultatif : saisis ici une limite précise (W) si elle n'est pas dans la liste. Elle remplace le choix de la liste.",
+          "circuit_a_charge_limit": "Facultatif : limite quand les batteries se chargent, si elle est différente de la limite en sortie. Vide = même valeur."
         }
       }
     },
@@ -53,7 +92,8 @@
       "cannot_connect": "Impossible de joindre la batterie. Vérifie l'IP et que l'API locale est activée.",
       "no_serial": "La batterie n'a pas renvoyé de numéro de série.",
       "members_count": "Choisis entre 2 et 4 batteries.",
-      "nothing_selected": "Coche au moins une batterie."
+      "nothing_selected": "Coche au moins une batterie.",
+      "circuit_limit": "Indique la limite du circuit en W."
     },
     "abort": {
       "already_configured": "Cette batterie est déjà configurée.",
@@ -67,33 +107,98 @@
       "init": {
         "title": "Options",
         "data": {
-          "scan_interval": "Intervalle de lecture (s)",
-          "use_ram": "Écrire les commandes de puissance en RAM (préserve la mémoire flash)",
           "grid_sensor": "Capteur réseau (ex. phase A du Shelly Pro 3EM)",
           "invert_grid": "Inverser le signe du capteur (cocher si positif = injection)",
-          "target_power": "Cible au compteur (W, 0 = zéro injection)",
-          "deadband": "Zone morte (W)",
-          "min_interval": "Délai minimum entre deux calculs de régulation (s)",
-          "import_limit": "Limite de soutirage par défaut en Charge réseau (W)",
           "solar_sensor": "Capteur de production solaire (pour « Stocker le solaire »)",
           "min_soc": "Niveau de charge minimum (%)",
           "max_soc": "Niveau de charge maximum (%)",
-          "fast_scan_interval": "Lecture de la batterie pendant la régulation (s)",
-          "max_charge_power": "Puissance de charge maximale (W)",
-          "max_discharge_power": "Puissance de décharge maximale (W)",
-          "circuit_limit": "Limite du circuit électrique (W, vide = aucune)",
-          "capacity": "Capacité (kWh, vide = calculée d'après les packs)",
-          "members": "Batteries du groupe (2 à 4)",
-          "priority_order_1": "Priorité 1 (stratégie « priorité »)",
-          "priority_order_2": "Priorité 2",
-          "priority_order_3": "Priorité 3",
-          "priority_order_4": "Priorité 4",
-          "circuit_a_members": "Circuit partagé A : batteries",
-          "circuit_a_limit": "Circuit partagé A : limite (W)",
-          "circuit_b_members": "Circuit partagé B : batteries",
-          "circuit_b_limit": "Circuit partagé B : limite (W)"
+          "members": "Batteries du groupe (2 à 4)"
         },
-        "description": "Les modes automatiques ont besoin d'un capteur qui mesure ce qui entre (positif) ou sort (négatif) du tableau électrique, par ex. la phase A d'un Shelly Pro 3EM. Sur un groupe, ces réglages remplacent ceux des batteries membres."
+        "description": "L'essentiel est ici. Les capteurs sont ceux du compteur (positif = la maison soutire au réseau) et de la production solaire (facultatif). Sur un groupe, ces réglages remplacent ceux des batteries membres. Les autres réglages sont dans les sections repliées : les valeurs par défaut conviennent dans la plupart des cas.",
+        "sections": {
+          "limits": {
+            "name": "Limites de puissance et capacité",
+            "description": "Laisse vide pour suivre la batterie : limites réglées dans l'app Zendure (charge {charge} W, sortie {discharge} W) et capacité calculée d'après les packs. Renseigne une valeur seulement pour la réduire, par exemple si la batterie est sur un circuit plus faible.",
+            "data": {
+              "max_charge_power": "Puissance de charge maximale (W, vide = app Zendure)",
+              "max_discharge_power": "Puissance de décharge maximale (W, vide = app Zendure)",
+              "circuit_limit": "Limite du circuit électrique (W, vide = aucune)",
+              "capacity": "Capacité (kWh, vide = calculée d'après les packs)"
+            },
+            "data_description": {
+              "max_charge_power": "Vide = la limite réglée dans l'app Zendure. Saisis une valeur seulement pour charger moins fort.",
+              "max_discharge_power": "Vide = la limite de sortie réglée dans l'app Zendure. Saisis une valeur seulement pour fournir moins à la maison.",
+              "circuit_limit": "Si la batterie est seule sur un circuit protégé par un petit disjoncteur, indique sa capacité (10 A ≈ 2 300 W, 16 A ≈ 3 600 W). La batterie ne la dépassera jamais. Vide = pas de limite.",
+              "capacity": "Vide = calculée d'après les packs de la batterie. Ne la saisis que si la capacité affichée est fausse ou inconnue."
+            }
+          },
+          "advanced": {
+            "name": "Réglages avancés de la régulation",
+            "description": "Valeurs par défaut adaptées à la plupart des installations.",
+            "data": {
+              "scan_interval": "Intervalle de lecture (s)",
+              "use_ram": "Écrire les commandes de puissance en RAM (préserve la mémoire flash)",
+              "target_power": "Cible au compteur (W, 0 = zéro injection)",
+              "import_limit": "Limite de soutirage par défaut en Charge réseau (W)",
+              "deadband": "Zone morte (W)",
+              "min_interval": "Délai minimum entre deux calculs de régulation (s)",
+              "fast_scan_interval": "Lecture de la batterie pendant la régulation (s)"
+            },
+            "data_description": {
+              "scan_interval": "Fréquence de lecture de la batterie quand rien ne se passe (10 s par défaut). Plus court = plus de requêtes sur le réseau.",
+              "use_ram": "Recommandé. Les consignes changent souvent ; les écrire en mémoire vive évite d'user la mémoire permanente de la batterie.",
+              "target_power": "Valeur visée au compteur. 0 = ni prendre ni renvoyer de courant. Mets par exemple 20 W pour garder une petite marge et ne jamais injecter.",
+              "import_limit": "En mode « Charge réseau » : puissance maximale que la maison peut prendre au réseau, batterie comprise. La charge ralentit pour ne pas faire sauter l'abonnement. Garde au moins 10 % de marge.",
+              "deadband": "Écart au compteur toléré avant de corriger (25 W par défaut). Plus grand = moins de corrections, mais un peu moins précis.",
+              "min_interval": "Temps minimum entre deux corrections (1 s par défaut). L'auto-réglage l'adapte à ton compteur.",
+              "fast_scan_interval": "Fréquence de lecture de la batterie pendant la régulation (2 s par défaut)."
+            }
+          },
+          "priority": {
+            "name": "Ordre de priorité",
+            "description": "Utilisé seulement avec la stratégie « priorité ».",
+            "data": {
+              "priority_order_1": "Priorité 1 (stratégie « priorité »)",
+              "priority_order_2": "Priorité 2",
+              "priority_order_3": "Priorité 3",
+              "priority_order_4": "Priorité 4"
+            },
+            "data_description": {
+              "priority_order_1": "Utilisé uniquement avec la stratégie « Priorité » : la batterie n°1 travaille seule tant qu'elle suffit, les suivantes prennent le relais.",
+              "priority_order_2": "Batterie sollicitée quand la n°1 est au maximum ou à son niveau limite.",
+              "priority_order_3": "Batterie suivante (groupes de 3 ou 4).",
+              "priority_order_4": "Dernière batterie (groupe de 4)."
+            }
+          },
+          "circuits": {
+            "name": "Circuits partagés",
+            "description": "Si plusieurs batteries sont branchées sur le même circuit électrique, indique-les avec la limite de ce circuit.",
+            "data": {
+              "circuit_a_members": "Circuit partagé A : batteries",
+              "circuit_a_limit": "Circuit partagé A : limite en sortie (W)",
+              "circuit_a_charge_limit": "Circuit partagé A : limite en charge (W, vide = même qu'en sortie)",
+              "circuit_b_members": "Circuit partagé B : batteries",
+              "circuit_b_limit": "Circuit partagé B : limite en sortie (W)",
+              "circuit_b_charge_limit": "Circuit partagé B : limite en charge (W, vide = même qu'en sortie)"
+            },
+            "data_description": {
+              "circuit_a_members": "Batteries branchées sur un même circuit électrique (au moins 2). Utile quand seulement certaines batteries du groupe le partagent.",
+              "circuit_a_limit": "Puissance maximale du circuit quand les batteries fournissent la maison (W). Leur total ne la dépassera jamais.",
+              "circuit_a_charge_limit": "Puissance maximale du circuit quand les batteries se chargent (W). Vide = même valeur qu'en sortie.",
+              "circuit_b_members": "Second circuit partagé, s'il y en a un.",
+              "circuit_b_limit": "Limite en sortie du second circuit (W).",
+              "circuit_b_charge_limit": "Limite en charge du second circuit (W). Vide = même valeur qu'en sortie."
+            }
+          }
+        },
+        "data_description": {
+          "grid_sensor": "Capteur de puissance au compteur (W) : positif quand la maison prend du courant au réseau, négatif quand elle en renvoie. Obligatoire pour les modes intelligents. Inutile sur une batterie membre d'un groupe : c'est le groupe qui régule.",
+          "invert_grid": "À cocher seulement si ton capteur est positif quand la maison renvoie du courant au réseau.",
+          "solar_sensor": "Facultatif. Production des panneaux (W), pour le mode « Stocker le solaire » et la carte.",
+          "min_soc": "La batterie ne descend jamais en dessous de ce niveau. Ce réglage est écrit dans la batterie, comme dans l'app Zendure.",
+          "max_soc": "La batterie ne se charge jamais au-dessus de ce niveau. Écrit dans la batterie, comme dans l'app Zendure.",
+          "members": "Batteries pilotées par ce groupe (2 à 4). Retirer une batterie lui rend le mode qu'elle avait avant d'entrer dans le groupe."
+        }
       }
     },
     "error": {
@@ -354,6 +459,25 @@
     "member_left_group": {
       "title": "{battery} n'est plus pilotée par le groupe {group}",
       "description": "Le mode de la batterie {battery} a été changé : elle ne suit plus le groupe {group}, qui continue sans elle. Pour la remettre dans le groupe, choisis le mode « Pilotée par le groupe » sur la batterie."
+    }
+  },
+  "selector": {
+    "circuit_preset": {
+      "options": {
+        "600_1200": "600 W en sortie / 1 200 W en charge",
+        "600_2400": "600 W en sortie / 2 400 W en charge",
+        "800_1200": "800 W en sortie / 1 200 W en charge",
+        "800_2400": "800 W en sortie / 2 400 W en charge",
+        "1200": "1 200 W",
+        "2000": "2 000 W",
+        "2300": "2 300 W (disjoncteur 10 A)",
+        "2400": "2 400 W",
+        "3600": "3 600 W (disjoncteur 16 A)",
+        "4000": "4 000 W",
+        "4600": "4 600 W (disjoncteur 20 A)",
+        "5000": "5 000 W",
+        "custom": "Autre : je saisis les valeurs"
+      }
     }
   }
 }

@@ -44,9 +44,10 @@ def test_entity_keys_translated():
         names = {k for platform in t["entity"].values() for k in platform}
         issues = set(t["issues"])
         exc = set(t["exceptions"])
-        missing = {k for k in keys if k not in names and k not in issues and k not in exc}
+        sel = set(t.get("selector", {}))
+        missing = {k for k in keys if k not in names and k not in issues and k not in exc and k not in sel}
         assert not missing, f"{lang} : clés sans traduction {missing}"
-        assert {k for k in exceptions if k in exc or k in issues or k in names} == exceptions
+        assert {k for k in exceptions if k in exc or k in issues or k in names or k in sel} == exceptions
 
 
 def test_enum_states_translated():

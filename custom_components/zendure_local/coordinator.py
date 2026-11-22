@@ -84,9 +84,11 @@ class ZendureCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def use_ram(self) -> bool:
         return bool(self.config_entry.options.get(CONF_USE_RAM, DEFAULT_USE_RAM))
 
-    def _opt_power(self, key: str) -> float:
+    def _opt_power(self, key: str) -> float | None:
+        """Limite saisie dans les options, ou None : on suit alors l'app Zendure."""
         opts = self.config_entry.options
-        return float(opts.get(key, opts.get(CONF_MAX_POWER, DEFAULT_MAX_POWER)))
+        v = _num(opts.get(key, opts.get(CONF_MAX_POWER)))
+        return v if v and v > 0 else None
 
     @property
     def circuit_limit(self) -> float | None:
@@ -191,13 +193,33 @@ class ZendureCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return min(limits) if limits else None
 
     def _limit(self, opt_key: str, max_key: str, avail_key: str) -> float:
-        limits = [self._opt_power(opt_key)]
+        limits = []
+        opt = self._opt_power(opt_key)
+        if opt is not None:
+            limits.append(opt)
         if self.circuit_limit:
             limits.append(self.circuit_limit)
         dev = self._device_limit(max_key, avail_key)
         if dev is not None:
             limits.append(dev)
-        return max(0.0, min(limits))
+        return max(0.0, min(limits)) if limits else float(DEFAULT_MAX_POWER)
+
+    def _nominal(self, opt_key: str, max_key: str) -> float:
+        """Limite « au repos » (sans la puissance disponible du moment)."""
+        limits = [v for v in (self._opt_power(opt_key), self.circuit_limit, _num(self.props.get(max_key))) if v and v > 0]
+        return float(min(limits)) if limits else float(DEFAULT_MAX_POWER)
+
+    @property
+    def app_charge_limit(self) -> float | None:
+        """Limite de charge réglée dans l'app Zendure (chargeMaxLimit)."""
+        v = _num(self.props.get("chargeMaxLimit"))
+        return v if v and v > 0 else None
+
+    @property
+    def app_discharge_limit(self) -> float | None:
+        """Limite de sortie réglée dans l'app Zendure (inverseMaxPower)."""
+        v = _num(self.props.get("inverseMaxPower"))
+        return v if v and v > 0 else None
 
     @property
     def max_charge_power(self) -> float:
@@ -210,7 +232,10 @@ class ZendureCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def max_power(self) -> float:
         """Bornes des entités de consigne (la vraie limite dépend du sens)."""
-        return max(self._opt_power(CONF_MAX_CHARGE_POWER), self._opt_power(CONF_MAX_DISCHARGE_POWER))
+        return max(
+            self._nominal(CONF_MAX_CHARGE_POWER, "chargeMaxLimit"),
+            self._nominal(CONF_MAX_DISCHARGE_POWER, "inverseMaxPower"),
+        )
 
     # ------------------------------------------------------------------ Z4 (hystérésis)
     def update_target_hold(self, target: float | None) -> None:
