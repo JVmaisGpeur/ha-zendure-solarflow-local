@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.3.1
+
+### Nouveautés
+- **Recherche automatique des batteries** : à l'ajout de l'intégration, les batteries Zendure du réseau local sont cherchées (mDNS, puis balayage du sous-réseau si besoin). On coche celles à ajouter : elles sont toutes créées d'un coup.
+- L'assistant affiche **toujours un menu** : ajouter les batteries trouvées, ajouter une batterie par son adresse IP, créer un groupe (dès que deux batteries sont ajoutées). Avant, sans batterie déjà ajoutée, il ouvrait directement la saisie de l'IP.
+
+### Corrections
+- **SolarFlow 3000 / 4000 Mix AC+** : le pack intégré (packType 70) est reconnu, 8 kWh. Plus d'alerte « Capacité inconnue ». Sur une SolarFlow 800, ce même packType reste un AB1000S (0,96 kWh).
+- Pack de type inconnu : la capacité est déduite du numéro de série du pack quand c'est possible (même règle que l'intégration Zendure officielle) ; l'alerte n'apparaît plus que si rien ne permet de la trouver.
+- L'alerte de capacité affiche le nom lisible du modèle.
+- Nom des appareils : le « + » du modèle s'écrit « Plus » (« SolarFlow 2400 AC Plus »). Une 2400 AC+ et une 2400 AC n'obtiennent plus les mêmes identifiants d'entités (plus de suffixe `_2`). Les identifiants déjà créés ne changent pas.
+
 ## v1.3.0
 
 ### Nouveautés

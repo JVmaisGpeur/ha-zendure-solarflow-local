@@ -34,11 +34,11 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_USE_RAM,
     DOMAIN,
-    PACK_CAPACITY_KWH,
     SIGNAL_BATTERY_UPDATE,
     STATE_SOC_MAX,
     STATE_SOC_MIN,
     STATE_TARGET_REACHED,
+    pack_capacity,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -151,11 +151,12 @@ class ZendureCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.packs:
             return None
         total, unknown = 0.0, set()
+        product = (self.data or {}).get("product")
         for pack in self.packs:
-            ptype = pack.get("packType")
-            cap = PACK_CAPACITY_KWH.get(int(ptype)) if ptype is not None else None
+            cap = pack_capacity(pack, product)
             if cap is None:
-                unknown.add(int(ptype) if ptype is not None else -1)
+                ptype = pack.get("packType")
+                unknown.add(int(ptype) if isinstance(ptype, (int, float)) else -1)
             else:
                 total += cap
         self.unknown_pack_types = unknown

@@ -19,7 +19,10 @@ Does **not** work with: Hyper 2000, Hub 1200/2000, AIO 2400, Ace 1500 (no local 
 
 1. HACS → ⋮ → **Custom repositories** → `https://github.com/JVmaisGpeur/ha-zendure-solarflow-local`, category **Integration**.
 2. Install **Zendure SolarFlow Local**, then restart Home Assistant.
-3. **Settings → Devices & services**: the battery is usually discovered automatically. Otherwise **Add integration** → *Zendure SolarFlow Local* → **Add a battery** → enter the IP.
+3. **Settings → Devices & services → Add integration** → *Zendure SolarFlow Local*. The integration searches the network for batteries (a few seconds), then offers:
+   - **Add the batteries found**: tick them, they are all added at once;
+   - **Add a battery by its IP address**, if it was not found;
+   - **Create a battery group**, as soon as two batteries are added.
 
 Manual installation: copy `custom_components/zendure_local` into `config/custom_components/` and restart.
 
@@ -69,7 +72,7 @@ Example: partial charge to 80 % without exceeding 6 kVA, with a 10 % margin.
 
 Several batteries on the same meter must not regulate on their own: they would fight each other. A **group** brings 2 to 4 already added batteries under **a single regulator**, which reads the meter once and splits the setpoint. Models may differ (e.g. 2400 AC and 2400 AC+).
 
-**Create a group**: Add integration → *Zendure SolarFlow Local* → **Create a battery group** → name + batteries. The batteries switch to **“Controlled by the group”**.
+**Create a group**: once the batteries are added, Add integration (or “Add entry” on the integration page) → *Zendure SolarFlow Local* → **Create a battery group** → name + batteries. The batteries switch to **“Controlled by the group”**.
 
 - The group is a separate device, controlled exactly like a single battery: same modes, setpoint, import limit, target SOC.
 - Each battery keeps its own device, sensors and energy counters.
@@ -111,6 +114,7 @@ The **Max charge power** and **Max discharge power** sensors show the limit actu
 | AB2000S | 1.92 kWh |
 | AB3000L | 2.88 kWh |
 | I2400 (built into the 2400 AC+) | 2.40 kWh |
+| Built-in pack of the 3000 / 4000 Mix AC+ (packType 70) | 8.0 kWh |
 
 An unknown pack raises an alert: enter the capacity in the battery options. **Available energy** = capacity × (SOC − min SOC); **Missing energy** = capacity × (max SOC − SOC).
 

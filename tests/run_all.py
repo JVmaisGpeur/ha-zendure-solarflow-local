@@ -5,7 +5,7 @@ import sys
 
 HERE = pathlib.Path(__file__).parent
 failed = []
-for name in ("test_dispatch.py", "test_translations.py", "test_contract.py", "test_scenarios.py"):
+for name in ("test_dispatch.py", "test_discovery.py", "test_translations.py", "test_contract.py", "test_scenarios.py"):
     print(f"\n=== {name} ===", flush=True)
     if subprocess.run([sys.executable, str(HERE / name)], cwd=HERE).returncode:
         failed.append(name)

@@ -27,6 +27,7 @@ from .api import ZendureApi
 from .const import (
     CONF_CAPACITY,
     CONF_ENTRY_TYPE,
+    pretty_model,
     DATA_PREVIOUS_MODES,
     DOMAIN,
     ENTRY_TYPE_GROUP,
@@ -88,7 +89,7 @@ def _check_pack_types(hass: HomeAssistant, entry: ConfigEntry, coordinator: Zend
             hass, DOMAIN, issue_id, is_fixable=False, severity=ir.IssueSeverity.WARNING,
             translation_key="unknown_pack_type",
             translation_placeholders={
-                "battery": entry.title,
+                "battery": f"Zendure {pretty_model((coordinator.data or {}).get('product'))}",
                 "types": ", ".join(str(t) for t in sorted(coordinator.unknown_pack_types)),
             },
         )

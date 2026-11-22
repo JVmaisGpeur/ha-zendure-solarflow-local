@@ -19,7 +19,10 @@ Ne fonctionne **pas** avec : Hyper 2000, Hub 1200/2000, AIO 2400, Ace 1500 (pas 
 
 1. HACS → ⋮ → **Dépôts personnalisés** → `https://github.com/JVmaisGpeur/ha-zendure-solarflow-local`, catégorie **Intégration**.
 2. Installer **Zendure SolarFlow Local**, puis redémarrer Home Assistant.
-3. **Paramètres → Appareils et services** : la batterie est en général détectée toute seule. Sinon, **Ajouter une intégration** → *Zendure SolarFlow Local* → **Ajouter une batterie** → saisir l'IP.
+3. **Paramètres → Appareils et services → Ajouter une intégration** → *Zendure SolarFlow Local*. L'intégration cherche les batteries sur le réseau (quelques secondes), puis propose :
+   - **Ajouter les batteries trouvées** : coche-les, elles sont toutes ajoutées d'un coup ;
+   - **Ajouter une batterie par son adresse IP**, si elle n'a pas été trouvée ;
+   - **Créer un groupe de batteries**, dès que deux batteries sont ajoutées.
 
 Installation manuelle : copier `custom_components/zendure_local` dans `config/custom_components/` puis redémarrer.
 
@@ -69,7 +72,7 @@ Exemple : charge partielle à 80 % sans dépasser 6 kVA avec 10 % de marge.
 
 Plusieurs batteries sur le même compteur ne doivent pas réguler chacune de leur côté : elles se contrediraient. Un **groupe** réunit 2 à 4 batteries déjà ajoutées sous **un seul régulateur**, qui lit le compteur une fois et répartit la consigne. Les modèles peuvent être différents (par exemple 2400 AC et 2400 AC+).
 
-**Créer un groupe** : Ajouter une intégration → *Zendure SolarFlow Local* → **Créer un groupe de batteries** → nom + batteries. Les batteries passent en mode **« Pilotée par le groupe »**.
+**Créer un groupe** : une fois les batteries ajoutées, Ajouter une intégration (ou « Ajouter une entrée » sur la page de l'intégration) → *Zendure SolarFlow Local* → **Créer un groupe de batteries** → nom + batteries. Les batteries passent en mode **« Pilotée par le groupe »**.
 
 - Le groupe est un appareil à part, piloté exactement comme une batterie seule : mêmes modes, consigne, limite de soutirage, SOC cible.
 - Chaque batterie garde son appareil, ses capteurs et ses compteurs d'énergie.
@@ -111,6 +114,7 @@ La **capacité utile** est calculée d'après le type de chaque pack détecté :
 | AB2000S | 1,92 kWh |
 | AB3000L | 2,88 kWh |
 | I2400 (intégré à la 2400 AC+) | 2,40 kWh |
+| Pack intégré des 3000 / 4000 Mix AC+ (packType 70) | 8,0 kWh |
 
 Un pack inconnu déclenche une alerte : saisis alors la capacité dans les options de la batterie. **Énergie disponible** = capacité × (SOC − SOC min) ; **Énergie manquante** = capacité × (SOC max − SOC).
 

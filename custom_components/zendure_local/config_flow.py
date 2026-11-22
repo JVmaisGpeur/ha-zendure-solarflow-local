@@ -7,6 +7,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import (
+    SOURCE_INTEGRATION_DISCOVERY,
     ConfigEntry,
     ConfigEntryState,
     ConfigFlow,
@@ -25,6 +26,7 @@ except ImportError:  # pragma: no cover - anciennes versions
     from homeassistant.components.zeroconf import ZeroconfServiceInfo
 
 from .api import ZendureApi, ZendureError
+from .discovery import async_find_batteries
 from .const import (
     CONF_CAPACITY,
     CONF_CIRCUIT_A_LIMIT,
@@ -69,6 +71,7 @@ from .const import (
     pretty_model,
 )
 
+CONF_SERIALS = "serials"
 PRIORITY_KEYS = [f"{CONF_PRIORITY}_{i}" for i in range(1, MAX_MEMBERS + 1)]
 
 
@@ -139,16 +142,78 @@ class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._host: str | None = None
         self._report: dict[str, Any] = {}
+        self._found: list = []
 
     async def _async_probe(self, host: str) -> dict[str, Any]:
         api = ZendureApi(async_get_clientsession(self.hass), host)
         return await api.async_get_report()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        # Le choix « groupe » n'apparaît que s'il y a au moins deux batteries disponibles
+        """Cherche d'abord les batteries sur le réseau, puis propose quoi faire."""
+        configured = {e.unique_id for e in self.hass.config_entries.async_entries(DOMAIN) if e.unique_id}
+        self._found = [b for b in await async_find_batteries(self.hass) if b.sn not in configured]
+        options = []
+        if self._found:
+            options.append("pick")
+        options.append("battery")
         if len(_battery_choices(self.hass)) >= MIN_MEMBERS:
-            return self.async_show_menu(step_id="user", menu_options=["battery", "group"])
-        return await self.async_step_battery(user_input)
+            options.append("group")
+        return self.async_show_menu(
+            step_id="user",
+            menu_options=options,
+            description_placeholders={"found": str(len(self._found))},
+        )
+
+    async def async_step_pick(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Ajoute en une fois les batteries trouvées que l'on a cochées."""
+        by_sn = {b.sn: b for b in self._found}
+        if user_input is not None:
+            chosen = [by_sn[sn] for sn in user_input.get(CONF_SERIALS) or [] if sn in by_sn]
+            if chosen:
+                first, others = chosen[0], chosen[1:]
+                for bat in others:
+                    # Chaque batterie a sa propre entrée : les suivantes sont créées à part
+                    self.hass.async_create_task(
+                        self.hass.config_entries.flow.async_init(
+                            DOMAIN,
+                            context={"source": SOURCE_INTEGRATION_DISCOVERY},
+                            data={CONF_HOST: bat.host, "sn": bat.sn, "product": bat.product},
+                        )
+                    )
+                await self.async_set_unique_id(first.sn, raise_on_progress=False)
+                self._abort_if_unique_id_configured(updates={CONF_HOST: first.host})
+                return self.async_create_entry(
+                    title=_title({"product": first.product}), data={CONF_HOST: first.host}
+                )
+        return self.async_show_form(
+            step_id="pick",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SERIALS, default=list(by_sn)): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(
+                                    value=b.sn, label=f"{_title({'product': b.product})} — {b.host}"
+                                )
+                                for b in self._found
+                            ],
+                            multiple=True,
+                            mode="list",
+                        )
+                    )
+                }
+            ),
+            errors={"base": "nothing_selected"} if user_input is not None else {},
+        )
+
+    async def async_step_integration_discovery(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:
+        """Batterie cochée dans la liste : ajoutée directement, sans autre question."""
+        await self.async_set_unique_id(discovery_info["sn"], raise_on_progress=False)
+        self._abort_if_unique_id_configured(updates={CONF_HOST: discovery_info[CONF_HOST]})
+        return self.async_create_entry(
+            title=_title({"product": discovery_info.get("product")}),
+            data={CONF_HOST: discovery_info[CONF_HOST]},
+        )
 
     async def async_step_battery(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}

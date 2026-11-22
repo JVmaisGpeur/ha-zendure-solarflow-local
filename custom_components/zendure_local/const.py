@@ -115,6 +115,29 @@ PACK_CAPACITY_KWH = {
     500: 2.40,  # I2400 (pack intégré de la 2400 AC+)
 }
 PACK_NAMES = {5: "AB3000", 300: "AB2000S", 350: "AB3000L", 500: "I2400"}
+# packType 70 n'est pas unique : pack intégré de 8 kWh sur les modèles « Mix »
+# (3000 / 4000 Mix AC+), mais AB1000S (0,96 kWh) sur une SolarFlow 800.
+PACK_TYPE_MIX = 70
+MIX_INTERNAL_KWH = 8.0
+# À défaut de packType connu : 1re lettre du numéro de série du pack
+SERIAL_PREFIX_KWH = {"B": 0.96, "C": 1.92, "F": 2.88, "G": 2.88, "J": 2.40}
+
+
+def pack_capacity(pack: dict, product: str | None) -> float | None:
+    """Capacité d'un pack (kWh), ou None si on ne sait pas la déterminer."""
+    ptype = pack.get("packType")
+    try:
+        ptype = int(ptype) if ptype is not None else None
+    except (TypeError, ValueError):
+        ptype = None
+    if ptype == PACK_TYPE_MIX and "mix" in str(product or "").lower():
+        return MIX_INTERNAL_KWH
+    if ptype in PACK_CAPACITY_KWH:
+        return PACK_CAPACITY_KWH[ptype]
+    sn = str(pack.get("sn") or "")
+    if sn[:1] == "A":
+        return 2.40 if sn[3:4] == "3" else 0.96
+    return SERIAL_PREFIX_KWH.get(sn[:1])
 
 # Signal envoyé à chaque nouvelle lecture d'une batterie (utilisé par les groupes)
 SIGNAL_BATTERY_UPDATE = f"{DOMAIN}_battery_update"
@@ -127,7 +150,7 @@ PLATFORMS = ["binary_sensor", "button", "number", "select", "sensor", "switch"]
 
 
 def pretty_model(name: str | None) -> str:
-    """« solarFlow3000MixAC+ » → « SolarFlow 3000 Mix AC+ »."""
+    """« solarFlow3000MixAC+ » → « SolarFlow 3000 Mix AC Plus »."""
     if not name:
         return "SolarFlow"
     rest = re.sub(r"^zendure\s*", "", str(name), flags=re.I)
@@ -138,4 +161,7 @@ def pretty_model(name: str | None) -> str:
     rest = re.sub(r"([a-z])([A-Z0-9])", r"\1 \2", rest)
     rest = re.sub(r"([0-9])([A-Za-z])", r"\1 \2", rest)
     rest = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", rest).strip()
+    # « + » écrit en toutes lettres : sinon « 2400 AC+ » et « 2400 AC » donnent
+    # les mêmes identifiants d'entités et HA ajoute « _2 » à la seconde batterie.
+    rest = re.sub(r"\s*\+$", " Plus", rest)
     return " ".join(p for p in (head, rest) if p)

@@ -2,16 +2,25 @@
   "config": {
     "flow_title": "{name}",
     "step": {
+      "user": {
+        "title": "Zendure SolarFlow Local",
+        "description": "Batteries found on the network and not yet added: {found}.\n\nWhat do you want to do?",
+        "menu_options": {
+          "pick": "Add the batteries found",
+          "battery": "Add a battery by its IP address",
+          "group": "Create a battery group"
+        }
+      },
+      "pick": {
+        "title": "Batteries found",
+        "description": "Tick the batteries to add. Each one becomes a device. To make them work together, then create a group (\"Add entry\" → \"Create a battery group\").",
+        "data": {
+          "serials": "Batteries"
+        }
+      },
       "zeroconf_confirm": {
         "title": "Zendure battery found",
         "description": "Add {name} ({host}) to Home Assistant?"
-      },
-      "user": {
-        "title": "Zendure SolarFlow Local",
-        "menu_options": {
-          "battery": "Add a battery",
-          "group": "Create a battery group"
-        }
       },
       "battery": {
         "title": "Zendure battery (local)",
@@ -32,7 +41,8 @@
     "error": {
       "cannot_connect": "Cannot reach the battery. Check the IP and that the local API is enabled.",
       "no_serial": "The battery did not return a serial number.",
-      "members_count": "Pick between 2 and 4 batteries."
+      "members_count": "Pick between 2 and 4 batteries.",
+      "nothing_selected": "Tick at least one battery."
     },
     "abort": {
       "already_configured": "This battery is already configured.",
