@@ -1,6 +1,7 @@
 {
   "domain": "zendure_local",
   "name": "Zendure SolarFlow Local",
+  "categories": ["energy.solar_batteries"],
   "codeowners": ["@JVmaisGpeur"],
   "config_flow": true,
   "dependencies": ["frontend", "http"],
