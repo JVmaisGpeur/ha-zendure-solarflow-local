@@ -20,6 +20,24 @@ CONF_SOLAR_SENSOR = "solar_sensor"
 CONF_FAST_SCAN = "fast_scan_interval"
 CONF_MIN_SOC = "min_soc"
 CONF_MAX_SOC = "max_soc"
+# v1.3.0
+CONF_MAX_CHARGE_POWER = "max_charge_power"
+CONF_MAX_DISCHARGE_POWER = "max_discharge_power"
+CONF_CIRCUIT_LIMIT = "circuit_limit"
+CONF_CAPACITY = "capacity"
+# Groupe
+CONF_ENTRY_TYPE = "entry_type"
+ENTRY_TYPE_BATTERY = "battery"
+ENTRY_TYPE_GROUP = "group"
+CONF_NAME = "name"
+CONF_MEMBERS = "members"
+CONF_PRIORITY = "priority_order"
+CONF_CIRCUIT_A_MEMBERS = "circuit_a_members"
+CONF_CIRCUIT_A_LIMIT = "circuit_a_limit"
+CONF_CIRCUIT_B_MEMBERS = "circuit_b_members"
+CONF_CIRCUIT_B_LIMIT = "circuit_b_limit"
+DATA_PREVIOUS_MODES = "previous_modes"
+MIN_MEMBERS, MAX_MEMBERS = 2, 4
 
 DEFAULT_SCAN_INTERVAL = 10  # secondes
 MIN_SCAN_INTERVAL = 3
@@ -31,6 +49,9 @@ DEFAULT_DEADBAND = 25  # W : écart en dessous duquel on ne bouge pas
 DEFAULT_MIN_INTERVAL = 1  # s minimum entre deux calculs de régulation
 DEFAULT_FAST_SCAN = 2  # s : lecture de la batterie pendant la régulation
 DEFAULT_IMPORT_LIMIT = 6000  # W max au compteur pendant la « charge réseau »
+MAX_IMPORT_LIMIT = 36000
+DEFAULT_CHARGE_TARGET_SOC = 100  # %
+CHARGE_TARGET_HYSTERESIS = 3  # points : reprise de la charge sous cible − 3
 
 # Modes de fonctionnement
 MODE_OFF = "off"  # Arrêt
@@ -40,6 +61,7 @@ MODE_SMART_DISCHARGE = "smart_discharge"  # Décharge intelligente
 MODE_SMART_CHARGE = "smart_charge"  # Charge intelligente (surplus solaire uniquement)
 MODE_SOLAR = "solar"  # Stocker le solaire (toute la production solaire)
 MODE_GRID_CHARGE = "grid_charge"  # Charge réseau
+MODE_GROUP = "group"  # Pilotée par le groupe (batterie membre uniquement)
 MODES = [
     MODE_OFF,
     MODE_MANUAL,
@@ -49,6 +71,53 @@ MODES = [
     MODE_SOLAR,
     MODE_GRID_CHARGE,
 ]
+
+# États de la régulation (capteur regulation_state, contrat d'interface v1)
+STATE_OFF = "off"
+STATE_MANUAL = "manual"
+STATE_REGULATING = "regulating"
+STATE_GRID_CHARGING = "grid_charging"
+STATE_TARGET_REACHED = "target_reached"
+STATE_IMPORT_LIMITED = "import_limited"
+STATE_SOC_MAX = "soc_max_reached"
+STATE_SOC_MIN = "soc_min_reached"
+STATE_SENSOR_UNAVAILABLE = "sensor_unavailable"
+STATE_ERROR = "error"
+STATE_DEGRADED = "degraded"  # groupe uniquement
+STATE_GROUP = "group"  # batterie membre pilotée par son groupe
+REGULATION_STATES = [
+    STATE_OFF,
+    STATE_MANUAL,
+    STATE_REGULATING,
+    STATE_GRID_CHARGING,
+    STATE_TARGET_REACHED,
+    STATE_IMPORT_LIMITED,
+    STATE_SOC_MAX,
+    STATE_SOC_MIN,
+    STATE_SENSOR_UNAVAILABLE,
+    STATE_ERROR,
+]
+BATTERY_REGULATION_STATES = [*REGULATION_STATES, STATE_GROUP]
+GROUP_REGULATION_STATES = [*REGULATION_STATES, STATE_DEGRADED]
+
+# Stratégies de répartition d'un groupe
+STRATEGY_SIMULTANEOUS = "simultaneous"
+STRATEGY_SOC_BALANCE = "soc_balance"
+STRATEGY_PRIORITY = "priority"
+STRATEGIES = [STRATEGY_SIMULTANEOUS, STRATEGY_SOC_BALANCE, STRATEGY_PRIORITY]
+DEFAULT_STRATEGY = STRATEGY_SOC_BALANCE
+
+# Capacité des packs selon packType (relevé sur l'API locale, nov. 2026)
+PACK_CAPACITY_KWH = {
+    5: 2.88,  # AB3000
+    300: 1.92,  # AB2000S
+    350: 2.88,  # AB3000L
+    500: 2.40,  # I2400 (pack intégré de la 2400 AC+)
+}
+PACK_NAMES = {5: "AB3000", 300: "AB2000S", 350: "AB3000L", 500: "I2400"}
+
+# Signal envoyé à chaque nouvelle lecture d'une batterie (utilisé par les groupes)
+SIGNAL_BATTERY_UPDATE = f"{DOMAIN}_battery_update"
 
 # Valeurs d'acMode (zenSDK)
 AC_MODE_CHARGE = 1  # entrée AC : la batterie se charge sur le réseau

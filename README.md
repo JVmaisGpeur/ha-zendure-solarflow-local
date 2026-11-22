@@ -1,23 +1,118 @@
 # Zendure SolarFlow Local
 
-Intégration Home Assistant pour piloter une batterie **Zendure SolarFlow** (testée pour la **SolarFlow 3000 Mix AC+**) **100 % en local**, via l'API HTTP zenSDK de la batterie : pas de cloud, pas de MQTT, pas de YAML.
+🇫🇷 Français · [🇬🇧 English](README.en.md)
+
+Intégration Home Assistant pour piloter des batteries **Zendure SolarFlow** **100 % en local**, via l'API HTTP zenSDK de la batterie : pas de cloud, pas de MQTT, pas de YAML. Une batterie seule ou un **groupe de 2 à 4 batteries** qui travaillent ensemble.
 
 Modèles compatibles avec l'API zenSDK : SolarFlow 800 / 800 Plus / 800 Pro (2), 1600 AC+, 2400 AC / AC+ / Pro, 3000 Mix AC+, 4000 Mix AC+ / Pro.
 Ne fonctionne **pas** avec : Hyper 2000, Hub 1200/2000, AIO 2400, Ace 1500 (pas d'API locale).
 
 ## Prérequis
 
-1. Une IP fixe pour la batterie (réservation DHCP sur la box), conseillé.
+1. Une IP fixe pour chaque batterie (réservation DHCP sur la box), conseillé.
 2. **Activer l'API locale** dans l'app Zendure : réglages de l'appareil → API locale / **HEMS**. Elle est désactivée par défaut depuis la norme EN 18031.
 3. Test rapide depuis un navigateur : `http://IP_DE_LA_BATTERIE/properties/report` doit renvoyer du JSON.
+
+> ⚠️ **Une batterie, un seul pilote.** Si une autre intégration pilote déjà la batterie (par exemple le « Zendure Manager » de Zendure-HA, ou un mode compteur intelligent dans l'app Zendure), les deux se contredisent. Mets l'autre pilote sur `off` pour les batteries gérées ici.
 
 ## Installation (HACS)
 
 1. HACS → ⋮ → **Dépôts personnalisés** → `https://github.com/JVmaisGpeur/ha-zendure-solarflow-local`, catégorie **Intégration**.
 2. Installer **Zendure SolarFlow Local**, puis redémarrer Home Assistant.
-3. **Paramètres → Appareils et services** : la batterie est en général détectée toute seule. Sinon, **Ajouter une intégration** → *Zendure SolarFlow Local* → saisir l'IP.
+3. **Paramètres → Appareils et services** : la batterie est en général détectée toute seule. Sinon, **Ajouter une intégration** → *Zendure SolarFlow Local* → **Ajouter une batterie** → saisir l'IP.
 
 Installation manuelle : copier `custom_components/zendure_local` dans `config/custom_components/` puis redémarrer.
+
+L'interface (entités, options, alertes, carte) est en **français** et en **anglais**, selon la langue de Home Assistant.
+
+## Modes de fonctionnement
+
+| Mode (clé) | Ce que fait la batterie |
+|---|---|
+| **Arrêt** (`off`) | Ne charge ni ne décharge (consigne 0) |
+| **Puissance manuelle** (`manual`) | Suit la **Consigne de puissance** |
+| **Couplage intelligent** (`smart`) | Stocke le surplus solaire au lieu de l'injecter, et fournit à la maison ce qui manque |
+| **Décharge intelligente** (`smart_discharge`) | Fournit seulement ce qui manque à la maison, ne se charge jamais |
+| **Charge intelligente** (`smart_charge`) | Stocke seulement le surplus solaire, ne se décharge jamais |
+| **Stocker le solaire** (`solar`) | Charge toute la production solaire (capteur de production solaire requis ; sinon comme « Charge intelligente ») |
+| **Charge réseau** (`grid_charge`) | Charge sur le réseau sans dépasser la **limite de soutirage**, jusqu'au **SOC cible de charge** |
+| **Pilotée par le groupe** (`group`) | Batterie membre d'un groupe : c'est le groupe qui la commande |
+
+Les modes automatiques ont besoin d'un **capteur réseau** (Configurer → « Capteur réseau »), par exemple la phase A d'un Shelly Pro 3EM : **positif quand on soutire, négatif quand on injecte** (sinon cocher « Inverser le signe »).
+
+L'intégration ne gère **aucun tarif** (heures pleines / creuses, Tempo…) : ce sont tes automatisations qui changent le mode.
+
+### Charge réseau : limite de soutirage et SOC cible
+
+- **Limite de soutirage** (`import_limit`, W) : la batterie charge aussi vite que possible sans que le compteur dépasse cette valeur. Réglable à chaud, depuis la carte ou une automatisation.
+- **SOC cible de charge** (`charge_target_soc`, %) : la charge s'arrête à ce niveau et la batterie reste au repos, sans décharger. Elle ne reprend que si le SOC redescend de **3 points** sous la cible.
+
+> ⚠️ La limite de soutirage n'est **pas une garantie stricte** : la régulation réagit à la mesure du compteur. Quand un gros appareil démarre, le soutirage peut dépasser la limite pendant 2 à 5 s avant correction (environ 4 s en simulation). Garde une marge d'**au moins 10 %** de ta puissance souscrite : `import_limit` = puissance souscrite − gros consommateurs prévus − marge.
+
+Exemple : charge partielle à 80 % sans dépasser 6 kVA avec 10 % de marge.
+
+```yaml
+- action: number.set_value
+  target: { entity_id: number.zendure_solarflow_2400_ac_limite_de_soutirage }
+  data: { value: 5400 }
+- action: number.set_value
+  target: { entity_id: number.zendure_solarflow_2400_ac_soc_cible_de_charge }
+  data: { value: 80 }
+- action: select.select_option
+  target: { entity_id: select.zendure_solarflow_2400_ac_mode_de_fonctionnement }
+  data: { option: grid_charge }
+```
+
+> Les `entity_id` dépendent du nom de l'appareil : vérifie-les dans **Paramètres → Entités**.
+
+## Groupe de batteries
+
+Plusieurs batteries sur le même compteur ne doivent pas réguler chacune de leur côté : elles se contrediraient. Un **groupe** réunit 2 à 4 batteries déjà ajoutées sous **un seul régulateur**, qui lit le compteur une fois et répartit la consigne. Les modèles peuvent être différents (par exemple 2400 AC et 2400 AC+).
+
+**Créer un groupe** : Ajouter une intégration → *Zendure SolarFlow Local* → **Créer un groupe de batteries** → nom + batteries. Les batteries passent en mode **« Pilotée par le groupe »**.
+
+- Le groupe est un appareil à part, piloté exactement comme une batterie seule : mêmes modes, consigne, limite de soutirage, SOC cible.
+- Chaque batterie garde son appareil, ses capteurs et ses compteurs d'énergie.
+- Les réglages de régulation (capteur réseau, cible, zone morte, capteur solaire…) se font sur le groupe. Ceux d'une batterie membre sont conservés mais **ignorés** tant qu'elle est membre ; la carte l'indique.
+- Changer le mode d'une batterie membre la **sort du pilotage** (alerte dans Réparations), sans défaire le groupe. Remettre « Pilotée par le groupe » la réintègre.
+- Retirer une batterie du groupe (options du groupe) ou **supprimer le groupe** rend à chaque batterie son mode d'avant.
+
+**Stratégie de répartition** (`strategy`) :
+
+| Clé | Comportement |
+|---|---|
+| `simultaneous` (Simultanée) | Consigne répartie au prorata de la puissance max de chaque batterie |
+| `soc_balance` (Équilibrage des SOC, par défaut) | La plus pleine décharge davantage, la plus vide charge davantage : les SOC convergent |
+| `priority` (Priorité) | Ordre fixé dans les options : la première travaille seule jusqu'à sa limite (puissance ou SOC), puis la suivante prend le relais |
+
+**Sécurité du répartiteur**
+- Jamais une batterie en charge pendant qu'une autre décharge.
+- Chaque batterie reste dans ses limites (puissance, SOC min / max, SOC cible) ; ce qu'elle ne peut pas prendre est reporté sur les autres.
+- Une batterie injoignable, en défaut ou sortie du pilotage quitte la répartition : le groupe continue avec les autres (état **Dégradé**, alerte dans Réparations) et la reprend à son retour.
+
+![Carte d'un groupe](docs/apercu-groupe.png)
+
+## Limites de puissance et circuits
+
+- **Puissance de charge / décharge maximale** : options de chaque batterie.
+- **Limite du circuit** (W) : si la batterie est branchée sur un circuit limité (équivalent des « groupes de fusible » de Zendure-HA, par exemple 1200 W), elle ne le dépassera jamais.
+- **Circuits partagés** (options du groupe) : plusieurs batteries sur le même circuit avec une limite commune.
+- Les limites annoncées par la batterie elle-même (puissance max, réduction en cas de chaleur) sont aussi respectées.
+
+Les capteurs **Puissance de charge max** et **Puissance de décharge max** affichent la limite réellement appliquée.
+
+## Capacité et énergie
+
+La **capacité utile** est calculée d'après le type de chaque pack détecté :
+
+| Pack | Capacité |
+|---|---|
+| AB3000 | 2,88 kWh |
+| AB2000S | 1,92 kWh |
+| AB3000L | 2,88 kWh |
+| I2400 (intégré à la 2400 AC+) | 2,40 kWh |
+
+Un pack inconnu déclenche une alerte : saisis alors la capacité dans les options de la batterie. **Énergie disponible** = capacité × (SOC − SOC min) ; **Énergie manquante** = capacité × (SOC max − SOC).
 
 ## Carte Lovelace incluse
 
@@ -25,150 +120,78 @@ L'intégration installe et charge sa propre carte : **rien à ajouter dans les r
 
 ![Aperçu de la carte](docs/apercu-carte.png)
 
-Tableau de bord → **Modifier** → **Ajouter une carte** → cherche **Zendure SolarFlow**. Ou, en YAML :
+Tableau de bord → **Modifier** → **Ajouter une carte** → **Zendure SolarFlow**, ou en YAML :
 
 ```yaml
 type: custom:zendure-solarflow-card
-```
-
-La carte trouve toute seule les entités de la batterie, quels que soient leurs noms ou la langue. Tout se règle aussi dans l'éditeur visuel :
-
-```yaml
-type: custom:zendure-solarflow-card
+device_id: ...                     # facultatif : batterie ou groupe (sinon le premier trouvé)
 name: Ma batterie                  # facultatif
-capacity: 8                        # kWh, facultatif (déduit du modèle sinon)
 solar_entity: sensor.production_solaire_puissance   # facultatif
 consumers:                         # facultatif, 5 appareils max
   - sensor.refrigerateur_puissance
-  - sensor.congelateur_puissance
 show_history: true
 show_flow: true
 ```
 
-Ce qu'elle affiche :
-- **Batterie** : niveau dans une batterie « liquide » animée, avec la limite du SOC minimum en pointillés rouges, l'énergie stockée et l'état (veille, charge, décharge). Les puissances Maison et Réseau sont dans le schéma des flux ; si le schéma est désactivé (`show_flow: false`), elles s'affichent en tuiles sous la batterie.
-- **Courbe des dernières 24 h** du niveau de charge.
-- **Disponible / Capacité / Cycles / Rendement**. Les cycles et le rendement sont calculés à partir des compteurs d'énergie de l'intégration, depuis son installation.
-- **Flux d'énergie** : Réseau, Solaire, Batterie et jusqu'à 5 appareils autour de la Maison. Des points animés montrent le sens de circulation de l'énergie, et l'anneau de la Maison indique la part de chaque source.
-- **Pilotage** : liste déroulante du mode de fonctionnement et cases pour les niveaux de charge **minimum** et **maximum**. En **Puissance manuelle**, deux cases **Charge manuelle** / **Décharge manuelle** et une saisie de la puissance en W (envoyée à la validation), plus un bouton pour mettre au repos.
+Elle affiche la batterie animée (ou le SOC global d'un groupe), la courbe 24 h, la capacité, les flux d'énergie, l'état de la régulation et le pilotage : mode, stratégie (groupe), Charge réseau (limite de soutirage, SOC cible), niveaux de charge min / max, puissance manuelle. Pour un groupe, une ligne par batterie (SOC, puissance, état).
 
-Un appui sur un élément ouvre son historique. La carte suit le thème clair ou sombre et la langue de Home Assistant (français ou anglais).
+## Régulation
 
-> Après une mise à jour de l'intégration, si la carte ne change pas, vide le cache du navigateur ou de l'app (Paramètres de l'app → Débogage → Réinitialiser le cache).
+- Recalcul à **chaque mesure du compteur** (environ 1 s avec un Shelly), batterie relue toutes les 2 s pendant la régulation.
+- Protection contre les dépassements et oscillations ; **affinage fin** des petits écarts qui durent.
+- **Réglage automatique** (activé par défaut) : apprend le rythme du compteur, son bruit et le temps de réponse des batteries ; boutons **Mesurer la réponse de la batterie** et **Réinitialiser l'apprentissage**.
 
-## Entités
+## Conventions de signe
 
-| Type | Entités |
-|---|---|
-| Pilotage | **Consigne de puissance** (W) : `+` = décharge vers la maison, `−` = charge sur le réseau, `0` = repos |
-| Réglages | Limite de charge AC, Limite de sortie, Mode AC (charge/décharge), SOC maximum (70–100 %), SOC minimum (0–50 %), Mode hors-réseau |
-| Mesures | Niveau de charge, Puissance batterie (+ en charge), Puissance de charge / décharge, vers la maison, prise au réseau, solaire, prise de secours, Autonomie restante, État, Température |
-| Énergie | Énergie chargée, déchargée, fournie à la maison, prise au réseau (kWh, compatibles avec le tableau de bord Énergie) |
-| Packs | Niveau, température, tension, courant, cellules min/max par pack |
-| Diagnostic | Défaut, Chauffage batterie, Réseau connecté, By-pass, Signal Wi-Fi |
+| Grandeur | + | − |
+|---|---|---|
+| `battery_power` (capteur Puissance batterie) | charge | décharge |
+| `power_setpoint` (Consigne de puissance) | décharge vers la maison | charge |
+| Capteur réseau | soutirage | injection |
 
-## Réglage automatique de la régulation
+Ces conventions ne changeront pas (les harmoniser casserait les automatisations existantes).
 
-Chaque installation est différente : vitesse de la batterie, rythme du compteur (Shelly environ 1 s, P1 ou Linky 2 à 10 s), consommation plus ou moins fluctuante. Avec l'interrupteur **Réglage automatique de la régulation**, activé par défaut, l'intégration **observe ton installation sans rien forcer** et adapte seule ses réglages.
+## Interface pour les autres intégrations
 
-| Ce qu'elle apprend | Ce qu'elle en déduit |
-|---|---|
-| Rythme du compteur | Délai entre deux calculs |
-| Bruit du compteur (fluctuation quand rien ne change) | Zone morte : on ne court plus après le bruit |
-| Délai de réaction et temps de réponse de la batterie | Temps d'attente anti-oscillation |
-| Dépassements ou corrections trop timides | Gain, entre 0,5 et 1 |
+Une batterie seule et un groupe exposent les mêmes entités de pilotage (**version d'interface 1**). Retrouve-les par le registre de Home Assistant (appareil + `translation_key`), jamais par leur `entity_id`.
 
-- Les valeurs apprises sont visibles dans les **capteurs de diagnostic** de l'appareil et conservées après un redémarrage.
-- Tant qu'il n'y a pas assez de mesures, les valeurs par défaut s'appliquent.
-- **Mesurer la réponse de la batterie** : ce bouton fait un petit échelon de 300 W pendant environ 12 s pour calibrer tout de suite, au lieu d'attendre quelques heures d'observation.
-- **Réinitialiser l'apprentissage** : à utiliser après un changement de compteur ou de batterie.
-- Si tu coupes le réglage automatique, la régulation reprend les valeurs de **Configurer**.
+| `translation_key` | Type | Unité / valeurs | Batterie | Groupe |
+|---|---|---|---|---|
+| `operating_mode` | select | `off`, `manual`, `smart`, `smart_discharge`, `smart_charge`, `solar`, `grid_charge` (+ `group` sur une batterie membre) | ✓ | ✓ |
+| `power_setpoint` | number | W, + décharge, − charge | ✓ | ✓ (total réparti) |
+| `import_limit` | number | W | ✓ | ✓ |
+| `charge_target_soc` | number | % | ✓ | ✓ |
+| `electric_level` | sensor | % | ✓ | ✓ (pondéré par la capacité) |
+| `usable_capacity` | sensor | kWh | ✓ | ✓ |
+| `available_energy` / `missing_energy` | sensor | kWh | ✓ | ✓ |
+| `battery_power` | sensor | W, + charge, − décharge | ✓ | ✓ |
+| `max_charge_power` / `max_discharge_power` | sensor | W | ✓ | ✓ |
+| `regulation_state` | sensor (enum) | `off`, `manual`, `regulating`, `grid_charging`, `target_reached`, `import_limited`, `soc_max_reached`, `soc_min_reached`, `sensor_unavailable`, `error` (+ `group` sur un membre, `degraded` sur un groupe) | ✓ | ✓ |
+| `strategy` | select | `simultaneous`, `soc_balance`, `priority` | — | ✓ |
+| `active_batteries` | sensor | nombre | — | ✓ |
 
-En simulation sur 4 profils d'installation, la précision au compteur reste la même qu'avec les réglages fixes, mais la batterie reçoit **47 à 85 % de commandes en moins**.
+Règles :
+- Une valeur d'enum inconnue doit être traitée comme « non gérée ».
+- Renommer ou supprimer un élément de ce tableau, changer une unité ou un signe impose une version majeure (2.0.0), annoncée une version à l'avance dans le CHANGELOG.
+- Les capteurs de diagnostic, les options et les attributs ne font pas partie de l'interface.
+- **Langue des clés** : les clés de cette interface sont en anglais, celles de l'intégration ha-tarifs-electricite restent en français (déjà publiées). C'est un choix volontaire, qui ne doit pas être « corrigé » sans version majeure.
 
-## Options
-
-Bouton **Configurer** sur l'intégration :
-- **Niveau de charge minimum / maximum** (%) : ils sont enregistrés directement dans la batterie. On peut aussi les régler avec les entités « SOC minimum » et « SOC maximum » ou depuis la carte.
-- **Intervalle de lecture** : 10 s par défaut, quand aucune régulation ne tourne.
-- **Lecture de la batterie pendant la régulation** : 2 s par défaut.
-- **Puissance max** : 3000 W par défaut.
-- **Écrire en RAM** (activé par défaut) : les commandes de puissance ne s'écrivent pas dans la mémoire flash.
-- **Capteur réseau**, **capteur de production solaire**, **inverser le signe**, **cible au compteur**, **zone morte**, **délai minimum entre deux calculs** (1 s par défaut), **soutirage max en charge réseau**.
-
-## Modes de fonctionnement
-
-Le sélecteur **Mode de fonctionnement** pilote la batterie :
-
-| Mode | Ce que fait la batterie |
-|---|---|
-| **Arrêt** | Ne charge ni ne décharge (consigne 0) |
-| **Puissance manuelle** | Suit la **Consigne de puissance** (+ décharge, − charge) |
-| **Couplage intelligent** | Stocke le surplus solaire au lieu de l'injecter, et fournit à la maison ce qui manque quand la production ne suffit pas |
-| **Décharge intelligente** | Fournit seulement ce qui manque à la maison. Ne se charge jamais |
-| **Charge intelligente** | Stocke seulement le surplus solaire. Ne se décharge jamais : l'énergie est gardée pour plus tard |
-| **Stocker le solaire** | Charge toute la production solaire, même si la maison consomme (il faut un **capteur de production solaire**). Sans ce capteur, se comporte comme « Charge intelligente » |
-| **Charge réseau** | Charge sur le réseau au maximum possible sans dépasser le **soutirage max au compteur** (6000 W par défaut) |
-
-Le mode est mémorisé au redémarrage. Si tu changes la consigne à la main, le mode repasse en **Puissance manuelle**.
-L'attribut `statut` du sélecteur indique ce que fait la batterie (stable, charge, décharge, batterie pleine…).
-
-### Capteurs (obligatoires pour les modes automatiques)
-
-1. **Configurer** sur l'intégration → **Capteur réseau** : choisis n'importe quel capteur de puissance, par ex. la phase A d'un Shelly Pro 3EM.
-   Il doit être **positif quand tu soutires** et **négatif quand tu injectes** (c'est le cas du Shelly). Sinon coche **Inverser le signe**.
-2. **Capteur de production solaire** (facultatif) : il sert au mode « Stocker le solaire ». La carte l'affiche aussi automatiquement dans les flux.
-
-### Une régulation la plus réactive possible
-
-- Elle recalcule **à chaque nouvelle mesure du compteur** (environ toutes les secondes avec un Shelly), au lieu d'attendre un minuteur.
-- Pendant la régulation, la batterie est relue toutes les 2 s, et juste après chaque commande.
-- La batterie met quelques secondes à atteindre une nouvelle consigne. Pendant ce temps, la régulation ne la pousse pas plus loin dans le même sens, ce qui évite les dépassements et les oscillations. Une correction en sens inverse, par exemple si la consommation chute, part immédiatement.
-- En simulation, après un appel de charge de 1500 W, l'équilibre au compteur revient en 3 à 4 s.
-- **Affinage fin** : la zone morte évite de courir après les fluctuations, mais un petit écart **qui dure** (par exemple 16 W soutirés en permanence) n'est pas du bruit. La régulation suit la moyenne de l'écart et, après 12 s sans commande, le corrige par petits pas de 10 W. En simulation, l'écart moyen au compteur tombe à environ 2 W.
-
-Réglages : **cible au compteur** (0 W), **zone morte** (25 W), **délai minimum entre deux calculs** (1 s).
-
-Sécurités :
-- Pas de décharge sous le SOC minimum ni de charge au-dessus du SOC maximum.
-- Si le capteur devient indisponible, la batterie passe au repos.
-
-⚠️ Désactive toute régulation dans l'app Zendure (mode compteur intelligent) : les deux se contrediraient.
-
-## Exemple d'automatisation
-
-L'intégration ne gère **aucun tarif** (heures pleines/creuses, Tempo…) : c'est le rôle de tes automatisations, qui changent simplement le mode. Par exemple :
-
-```yaml
-automation:
-  - alias: Batterie - passer en charge réseau
-    triggers:
-      - trigger: state
-        entity_id: input_boolean.charger_batterie_sur_reseau
-        to: "on"
-    actions:
-      - action: select.select_option
-        target:
-          entity_id: select.zendure_solarflow_mode_de_fonctionnement
-        data:
-          option: grid_charge
-```
-
-Valeurs possibles pour `option` : `off`, `manual`, `smart`, `smart_discharge`, `smart_charge`, `solar`, `grid_charge`.
-
-> Les `entity_id` dépendent du nom donné à l'appareil : vérifie-les dans **Paramètres → Entités**.
+Exemple d'usage : un pilote externe (par exemple un futur « Chef d'orchestre énergie » qui tient compte des tarifs et de la prévision solaire) programme une charge en heures creuses avec `import_limit`, `charge_target_soc` et `operating_mode` = `grid_charge`. L'intégration applique simplement la dernière commande reçue, d'où qu'elle vienne.
 
 ## Fonctionnement technique
 
-- Lecture : `GET http://IP/properties/report`
-- Écriture : `POST http://IP/properties/write` avec `{"sn": "...", "properties": {...}}`
-- Décharge : `acMode: 2` + `outputLimit` ; charge : `acMode: 1` + `inputLimit`
-- `socSet` / `minSoc` sont stockés par l'appareil en dixièmes de % (1000 = 100 %)
-- Découverte automatique via mDNS `_zendure._tcp`
+- Lecture : `GET http://IP/properties/report` ; écriture : `POST http://IP/properties/write`.
+- Décharge : `acMode: 2` + `outputLimit` ; charge : `acMode: 1` + `inputLimit` ; commandes fréquentes écrites en RAM (`smartMode: 1`).
+- `socSet` / `minSoc` en dixièmes de % ; températures en dixièmes de kelvin.
+- Découverte automatique via mDNS `_zendure._tcp`.
 
-## Feuille de route
+## Tests
 
-- **Plusieurs batteries** (2 ou 3) qui travaillent ensemble : charge et décharge en simultané, ou par ordre de priorité, dans l'intégration comme dans la carte. Pour l'instant, l'intégration pilote une seule batterie.
+`tests/` contient les tests du répartiteur, des traductions, du contrat d'interface et des scénarios de régulation (batterie seule, charge réseau, groupe sur 30 minutes, stratégies, batterie débranchée, membres), joués avec le vrai code en temps simulé :
+
+```bash
+python3 tests/run_all.py
+```
 
 ## Licence
 

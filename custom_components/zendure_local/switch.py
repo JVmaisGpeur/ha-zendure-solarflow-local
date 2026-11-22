@@ -11,7 +11,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import ZendureConfigEntry
-from .coordinator import ZendureCoordinator
 from .entity import ZendureEntity
 
 
@@ -27,7 +26,7 @@ class ZendureAutoTuneSwitch(ZendureEntity, SwitchEntity, RestoreEntity):
     _attr_translation_key = "auto_tune"
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, coordinator: ZendureCoordinator) -> None:
+    def __init__(self, coordinator) -> None:
         super().__init__(coordinator, "auto_tune")
 
     async def async_added_to_hass(self) -> None:

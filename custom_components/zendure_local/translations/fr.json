@@ -2,26 +2,43 @@
   "config": {
     "flow_title": "{name}",
     "step": {
+      "zeroconf_confirm": {
+        "title": "Batterie Zendure trouvée",
+        "description": "Ajouter {name} ({host}) à Home Assistant ?"
+      },
       "user": {
+        "title": "Zendure SolarFlow Local",
+        "menu_options": {
+          "battery": "Ajouter une batterie",
+          "group": "Créer un groupe de batteries"
+        }
+      },
+      "battery": {
         "title": "Batterie Zendure (locale)",
         "description": "Adresse IP de la batterie. L'API locale doit être activée dans l'app Zendure (paramètre « HEMS » / API locale).",
         "data": {
           "host": "Adresse IP"
         }
       },
-      "zeroconf_confirm": {
-        "title": "Batterie Zendure trouvée",
-        "description": "Ajouter {name} ({host}) à Home Assistant ?"
+      "group": {
+        "title": "Groupe de batteries",
+        "description": "Un seul régulateur lit le compteur et répartit la consigne entre les batteries choisies (2 à 4). Chaque batterie garde son appareil et ses capteurs.",
+        "data": {
+          "name": "Nom du groupe",
+          "members": "Batteries du groupe"
+        }
       }
     },
     "error": {
       "cannot_connect": "Impossible de joindre la batterie. Vérifie l'IP et que l'API locale est activée.",
-      "no_serial": "La batterie n'a pas renvoyé de numéro de série."
+      "no_serial": "La batterie n'a pas renvoyé de numéro de série.",
+      "members_count": "Choisis entre 2 et 4 batteries."
     },
     "abort": {
       "already_configured": "Cette batterie est déjà configurée.",
       "cannot_connect": "Impossible de joindre la batterie.",
-      "no_serial": "La batterie n'a pas renvoyé de numéro de série."
+      "no_serial": "La batterie n'a pas renvoyé de numéro de série.",
+      "not_enough_batteries": "Il faut au moins deux batteries ajoutées et libres (une batterie n'appartient qu'à un seul groupe)."
     }
   },
   "options": {
@@ -30,24 +47,39 @@
         "title": "Options",
         "data": {
           "scan_interval": "Intervalle de lecture (s)",
-          "max_power": "Puissance max charge/décharge (W)",
           "use_ram": "Écrire les commandes de puissance en RAM (préserve la mémoire flash)",
           "grid_sensor": "Capteur réseau (ex. phase A du Shelly Pro 3EM)",
           "invert_grid": "Inverser le signe du capteur (cocher si positif = injection)",
           "target_power": "Cible au compteur (W, 0 = zéro injection)",
           "deadband": "Zone morte (W)",
           "min_interval": "Délai minimum entre deux calculs de régulation (s)",
-          "import_limit": "Soutirage max au compteur en « Charge réseau » (W)",
+          "import_limit": "Limite de soutirage par défaut en Charge réseau (W)",
           "solar_sensor": "Capteur de production solaire (pour « Stocker le solaire »)",
           "min_soc": "Niveau de charge minimum (%)",
           "max_soc": "Niveau de charge maximum (%)",
-          "fast_scan_interval": "Lecture de la batterie pendant la régulation (s)"
+          "fast_scan_interval": "Lecture de la batterie pendant la régulation (s)",
+          "max_charge_power": "Puissance de charge maximale (W)",
+          "max_discharge_power": "Puissance de décharge maximale (W)",
+          "circuit_limit": "Limite du circuit électrique (W, vide = aucune)",
+          "capacity": "Capacité (kWh, vide = calculée d'après les packs)",
+          "members": "Batteries du groupe (2 à 4)",
+          "priority_order_1": "Priorité 1 (stratégie « priorité »)",
+          "priority_order_2": "Priorité 2",
+          "priority_order_3": "Priorité 3",
+          "priority_order_4": "Priorité 4",
+          "circuit_a_members": "Circuit partagé A : batteries",
+          "circuit_a_limit": "Circuit partagé A : limite (W)",
+          "circuit_b_members": "Circuit partagé B : batteries",
+          "circuit_b_limit": "Circuit partagé B : limite (W)"
         },
-        "description": "Les modes intelligents ont besoin d'un capteur qui mesure ce qui entre (positif) ou sort (négatif) du tableau électrique, par ex. la phase A du Shelly Pro 3EM."
+        "description": "Les modes automatiques ont besoin d'un capteur qui mesure ce qui entre (positif) ou sort (négatif) du tableau électrique, par ex. la phase A d'un Shelly Pro 3EM. Sur un groupe, ces réglages remplacent ceux des batteries membres."
       }
     },
     "error": {
-      "write_failed": "Impossible d'écrire les niveaux de charge dans la batterie."
+      "write_failed": "Impossible d'écrire les niveaux de charge dans la batterie.",
+      "members_count": "Choisis entre 2 et 4 batteries.",
+      "circuit_members": "Un circuit partagé regroupe au moins deux batteries du groupe.",
+      "circuit_limit": "Indique la limite du circuit en W."
     }
   },
   "entity": {
@@ -149,6 +181,41 @@
       },
       "tune_responses": {
         "name": "Mesures de réponse"
+      },
+      "usable_capacity": {
+        "name": "Capacité utile"
+      },
+      "available_energy": {
+        "name": "Énergie disponible"
+      },
+      "missing_energy": {
+        "name": "Énergie manquante"
+      },
+      "max_charge_power": {
+        "name": "Puissance de charge max"
+      },
+      "max_discharge_power": {
+        "name": "Puissance de décharge max"
+      },
+      "active_batteries": {
+        "name": "Batteries actives"
+      },
+      "regulation_state": {
+        "name": "État de la régulation",
+        "state": {
+          "off": "Arrêt",
+          "manual": "Manuel",
+          "regulating": "Régulation",
+          "grid_charging": "Charge réseau",
+          "target_reached": "Cible atteinte",
+          "import_limited": "Limitée par le soutirage",
+          "soc_max_reached": "SOC max atteint",
+          "soc_min_reached": "SOC min atteint",
+          "sensor_unavailable": "Capteur indisponible",
+          "error": "Erreur",
+          "degraded": "Dégradé",
+          "group": "Pilotée par le groupe"
+        }
       }
     },
     "number": {
@@ -166,6 +233,12 @@
       },
       "min_soc": {
         "name": "SOC minimum"
+      },
+      "import_limit": {
+        "name": "Limite de soutirage"
+      },
+      "charge_target_soc": {
+        "name": "SOC cible de charge"
       }
     },
     "select": {
@@ -193,7 +266,16 @@
           "smart_discharge": "Décharge intelligente",
           "smart_charge": "Charge intelligente",
           "solar": "Stocker le solaire",
-          "grid_charge": "Charge réseau"
+          "grid_charge": "Charge réseau",
+          "group": "Pilotée par le groupe"
+        }
+      },
+      "strategy": {
+        "name": "Stratégie de répartition",
+        "state": {
+          "simultaneous": "Simultanée",
+          "soc_balance": "Équilibrage des SOC",
+          "priority": "Priorité"
         }
       }
     },
@@ -226,6 +308,31 @@
       "reset_learning": {
         "name": "Réinitialiser l'apprentissage"
       }
+    }
+  },
+  "exceptions": {
+    "write_failed": {
+      "message": "La batterie a refusé la commande : {error}"
+    },
+    "measure_impossible": {
+      "message": "Mesure impossible : la batterie est trop pleine, trop vide ou déjà à sa limite."
+    },
+    "grid_sensor_required": {
+      "message": "Ce mode a besoin d'un capteur réseau : Paramètres → Appareils et services → Zendure SolarFlow Local → Configurer → « Capteur réseau »."
+    }
+  },
+  "issues": {
+    "unknown_pack_type": {
+      "title": "Capacité inconnue pour {battery}",
+      "description": "La batterie {battery} contient un pack de type inconnu ({types}). Sa capacité ne peut pas être calculée : renseigne « Capacité (kWh) » dans les options de la batterie."
+    },
+    "member_unavailable": {
+      "title": "{battery} indisponible dans le groupe {group}",
+      "description": "La batterie {battery} est injoignable, en défaut ou en protection. Le groupe {group} continue avec les autres batteries (état « Dégradé ») et la reprendra à son retour."
+    },
+    "member_left_group": {
+      "title": "{battery} n'est plus pilotée par le groupe {group}",
+      "description": "Le mode de la batterie {battery} a été changé : elle ne suit plus le groupe {group}, qui continue sans elle. Pour la remettre dans le groupe, choisis le mode « Pilotée par le groupe » sur la batterie."
     }
   }
 }

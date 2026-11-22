@@ -29,7 +29,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import ZendureConfigEntry
-from .coordinator import ZendureCoordinator
+from .const import BATTERY_REGULATION_STATES, GROUP_REGULATION_STATES, MODE_OFF, STATE_DEGRADED
 from .entity import ZendureEntity
 
 PACK_STATES = {0: "standby", 1: "charging", 2: "discharging"}
@@ -211,13 +211,55 @@ TUNING_SENSORS: tuple[tuple[str, str | None, Callable[[Any], Any]], ...] = (
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class ZendureTargetSensorDescription(SensorEntityDescription):
+    """Capteur calculé à partir de la cible (batterie ou groupe) : contrat d'interface."""
+
+    value_fn: Callable[[Any], Any]
+
+
+KWH = dict(
+    native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+    device_class=SensorDeviceClass.ENERGY_STORAGE,
+    state_class=SensorStateClass.MEASUREMENT,
+    suggested_display_precision=2,
+)
+
+# Z2, Z3, Z5 : communs à une batterie et à un groupe
+TARGET_SENSORS: tuple[ZendureTargetSensorDescription, ...] = (
+    ZendureTargetSensorDescription(key="usable_capacity", translation_key="usable_capacity", value_fn=lambda t: t.usable_capacity, **KWH),
+    ZendureTargetSensorDescription(key="available_energy", translation_key="available_energy", value_fn=lambda t: t.available_energy, **KWH),
+    ZendureTargetSensorDescription(key="missing_energy", translation_key="missing_energy", value_fn=lambda t: t.missing_energy, **KWH),
+    ZendureTargetSensorDescription(key="max_charge_power", translation_key="max_charge_power", value_fn=lambda t: round(t.max_charge_power), **W),
+    ZendureTargetSensorDescription(key="max_discharge_power", translation_key="max_discharge_power", value_fn=lambda t: round(t.max_discharge_power), **W),
+)
+
+# Groupe : mêmes translation_key que la batterie pour electric_level et battery_power
+GROUP_SENSORS: tuple[ZendureTargetSensorDescription, ...] = (
+    ZendureTargetSensorDescription(
+        key="electric_level", translation_key="electric_level", native_unit_of_measurement=PERCENTAGE,
+        device_class=SensorDeviceClass.BATTERY, state_class=SensorStateClass.MEASUREMENT, value_fn=lambda t: t.soc,
+    ),
+    ZendureTargetSensorDescription(key="battery_power", translation_key="battery_power", value_fn=lambda t: t.battery_power, **W),
+    ZendureTargetSensorDescription(
+        key="active_batteries", translation_key="active_batteries", state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda t: len(t.active()),
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ZendureConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SensorEntity] = [ZendureSensor(coordinator, d) for d in SENSORS]
+    common: list[SensorEntity] = [ZendureTargetSensor(coordinator, d) for d in TARGET_SENSORS]
+    common.append(ZendureRegulationStateSensor(coordinator))
+    common += [ZendureTuningSensor(coordinator, *d) for d in TUNING_SENSORS]
+    if getattr(coordinator, "is_group", False):
+        async_add_entities([*common, *(ZendureTargetSensor(coordinator, d) for d in GROUP_SENSORS)])
+        return
+    entities: list[SensorEntity] = [*common, *(ZendureSensor(coordinator, d) for d in SENSORS)]
     entities += [ZendureEnergySensor(coordinator, key, prop) for key, prop in ENERGY_SENSORS]
-    entities += [ZendureTuningSensor(coordinator, *d) for d in TUNING_SENSORS]
     for idx, _pack in enumerate(coordinator.packs):
         entities += [ZendurePackSensor(coordinator, d, idx) for d in PACK_SENSORS]
     async_add_entities(entities)
@@ -226,7 +268,7 @@ async def async_setup_entry(
 class ZendureSensor(ZendureEntity, SensorEntity):
     entity_description: ZendureSensorDescription
 
-    def __init__(self, coordinator: ZendureCoordinator, description: ZendureSensorDescription) -> None:
+    def __init__(self, coordinator, description: ZendureSensorDescription) -> None:
         super().__init__(coordinator, description.key)
         self.entity_description = description
 
@@ -241,7 +283,7 @@ class ZendureSensor(ZendureEntity, SensorEntity):
 class ZendurePackSensor(ZendureEntity, SensorEntity):
     entity_description: ZendureSensorDescription
 
-    def __init__(self, coordinator: ZendureCoordinator, description: ZendureSensorDescription, idx: int) -> None:
+    def __init__(self, coordinator, description: ZendureSensorDescription, idx: int) -> None:
         super().__init__(coordinator, f"pack{idx + 1}_{description.key}")
         self.entity_description = description
         self._idx = idx
@@ -272,7 +314,7 @@ class ZendureEnergySensor(ZendureEntity, RestoreSensor):
 
     MAX_GAP = 300  # s : au-delà, on n'extrapole pas (batterie injoignable)
 
-    def __init__(self, coordinator: ZendureCoordinator, key: str, prop: str) -> None:
+    def __init__(self, coordinator, key: str, prop: str) -> None:
         super().__init__(coordinator, key)
         self._attr_translation_key = key
         self._prop = prop
@@ -312,8 +354,9 @@ class ZendureTuningSensor(ZendureEntity, SensorEntity):
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_state_class = SensorStateClass.MEASUREMENT
+    _follow_regulator = True
 
-    def __init__(self, coordinator: ZendureCoordinator, key: str, unit: str | None, fn) -> None:
+    def __init__(self, coordinator, key: str, unit: str | None, fn) -> None:
         super().__init__(coordinator, key)
         self._attr_translation_key = key
         self._attr_native_unit_of_measurement = unit
@@ -322,11 +365,49 @@ class ZendureTuningSensor(ZendureEntity, SensorEntity):
         if key == "tune_gain":
             self._attr_suggested_display_precision = 2
 
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        self.async_on_remove(self.coordinator.regulator.add_listener(self.async_write_ha_state))
-
     @property
     def native_value(self) -> Any:
         value = self._fn(self.coordinator.regulator)
         return None if value is None else round(float(value), 3)
+
+
+class ZendureTargetSensor(ZendureEntity, SensorEntity):
+    """Capteur calculé sur la cible (batterie ou groupe)."""
+
+    entity_description: ZendureTargetSensorDescription
+
+    def __init__(self, coordinator, description: ZendureTargetSensorDescription) -> None:
+        super().__init__(coordinator, description.key)
+        self.entity_description = description
+
+    @property
+    def native_value(self) -> Any:
+        try:
+            return self.entity_description.value_fn(self.coordinator)
+        except (TypeError, ValueError, KeyError, ZeroDivisionError):
+            return None
+
+
+class ZendureRegulationStateSensor(ZendureEntity, SensorEntity):
+    """Z6 : ce que fait la régulation, avec des clés stables (traduites à l'affichage)."""
+
+    _attr_translation_key = "regulation_state"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _follow_regulator = True
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "regulation_state")
+        self._attr_options = list(GROUP_REGULATION_STATES if self.is_group else BATTERY_REGULATION_STATES)
+
+    @property
+    def available(self) -> bool:
+        return True if self.is_group else super().available
+
+    @property
+    def native_value(self) -> str | None:
+        reg = self.regulator
+        if reg is None:
+            return None
+        if self.is_group and reg.mode != MODE_OFF and self.coordinator.degraded:
+            return STATE_DEGRADED
+        return reg.state

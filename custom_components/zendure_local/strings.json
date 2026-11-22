@@ -2,26 +2,43 @@
   "config": {
     "flow_title": "{name}",
     "step": {
+      "zeroconf_confirm": {
+        "title": "Zendure battery found",
+        "description": "Add {name} ({host}) to Home Assistant?"
+      },
       "user": {
+        "title": "Zendure SolarFlow Local",
+        "menu_options": {
+          "battery": "Add a battery",
+          "group": "Create a battery group"
+        }
+      },
+      "battery": {
         "title": "Zendure battery (local)",
         "description": "Battery IP address. The local API must be enabled in the Zendure app (HEMS / local API setting).",
         "data": {
           "host": "IP address"
         }
       },
-      "zeroconf_confirm": {
-        "title": "Zendure battery found",
-        "description": "Add {name} ({host}) to Home Assistant?"
+      "group": {
+        "title": "Battery group",
+        "description": "A single regulator reads the meter and splits the setpoint between the selected batteries (2 to 4). Each battery keeps its own device and sensors.",
+        "data": {
+          "name": "Group name",
+          "members": "Batteries in the group"
+        }
       }
     },
     "error": {
       "cannot_connect": "Cannot reach the battery. Check the IP and that the local API is enabled.",
-      "no_serial": "The battery did not return a serial number."
+      "no_serial": "The battery did not return a serial number.",
+      "members_count": "Pick between 2 and 4 batteries."
     },
     "abort": {
       "already_configured": "This battery is already configured.",
       "cannot_connect": "Cannot reach the battery.",
-      "no_serial": "The battery did not return a serial number."
+      "no_serial": "The battery did not return a serial number.",
+      "not_enough_batteries": "At least two added, free batteries are needed (a battery belongs to one group only)."
     }
   },
   "options": {
@@ -30,24 +47,39 @@
         "title": "Options",
         "data": {
           "scan_interval": "Polling interval (s)",
-          "max_power": "Max charge/discharge power (W)",
           "use_ram": "Write power commands to RAM (saves flash wear)",
           "grid_sensor": "Grid power sensor (e.g. Shelly Pro 3EM phase A)",
           "invert_grid": "Invert sensor sign (tick if positive = export)",
           "target_power": "Grid target (W, 0 = zero export)",
           "deadband": "Deadband (W)",
           "min_interval": "Minimum delay between regulation steps (s)",
-          "import_limit": "Max grid import during grid charge (W)",
+          "import_limit": "Default grid import limit in Grid charge (W)",
           "solar_sensor": "Solar production sensor (for “Store solar”)",
           "min_soc": "Minimum state of charge (%)",
           "max_soc": "Maximum state of charge (%)",
-          "fast_scan_interval": "Battery polling while regulating (s)"
+          "fast_scan_interval": "Battery polling while regulating (s)",
+          "max_charge_power": "Maximum charge power (W)",
+          "max_discharge_power": "Maximum discharge power (W)",
+          "circuit_limit": "Electrical circuit limit (W, empty = none)",
+          "capacity": "Capacity (kWh, empty = computed from the packs)",
+          "members": "Batteries in the group (2 to 4)",
+          "priority_order_1": "Priority 1 (“priority” strategy)",
+          "priority_order_2": "Priority 2",
+          "priority_order_3": "Priority 3",
+          "priority_order_4": "Priority 4",
+          "circuit_a_members": "Shared circuit A: batteries",
+          "circuit_a_limit": "Shared circuit A: limit (W)",
+          "circuit_b_members": "Shared circuit B: batteries",
+          "circuit_b_limit": "Shared circuit B: limit (W)"
         },
-        "description": "Smart modes need a sensor measuring grid import (positive) / export (negative), e.g. Shelly Pro 3EM phase A."
+        "description": "Automatic modes need a sensor measuring grid import (positive) / export (negative), e.g. Shelly Pro 3EM phase A. On a group, these settings replace those of the member batteries."
       }
     },
     "error": {
-      "write_failed": "Could not write the charge levels to the battery."
+      "write_failed": "Could not write the charge levels to the battery.",
+      "members_count": "Pick between 2 and 4 batteries.",
+      "circuit_members": "A shared circuit groups at least two batteries of the group.",
+      "circuit_limit": "Enter the circuit limit in W."
     }
   },
   "entity": {
@@ -149,6 +181,41 @@
       },
       "tune_responses": {
         "name": "Response measurements"
+      },
+      "usable_capacity": {
+        "name": "Usable capacity"
+      },
+      "available_energy": {
+        "name": "Available energy"
+      },
+      "missing_energy": {
+        "name": "Missing energy"
+      },
+      "max_charge_power": {
+        "name": "Max charge power"
+      },
+      "max_discharge_power": {
+        "name": "Max discharge power"
+      },
+      "active_batteries": {
+        "name": "Active batteries"
+      },
+      "regulation_state": {
+        "name": "Regulation state",
+        "state": {
+          "off": "Off",
+          "manual": "Manual",
+          "regulating": "Regulating",
+          "grid_charging": "Grid charging",
+          "target_reached": "Target reached",
+          "import_limited": "Limited by grid import",
+          "soc_max_reached": "Max SOC reached",
+          "soc_min_reached": "Min SOC reached",
+          "sensor_unavailable": "Sensor unavailable",
+          "error": "Error",
+          "degraded": "Degraded",
+          "group": "Controlled by the group"
+        }
       }
     },
     "number": {
@@ -166,6 +233,12 @@
       },
       "min_soc": {
         "name": "Minimum SOC"
+      },
+      "import_limit": {
+        "name": "Grid import limit"
+      },
+      "charge_target_soc": {
+        "name": "Charge target SOC"
       }
     },
     "select": {
@@ -193,7 +266,16 @@
           "smart_discharge": "Smart discharge",
           "smart_charge": "Smart charge",
           "solar": "Store solar",
-          "grid_charge": "Grid charge"
+          "grid_charge": "Grid charge",
+          "group": "Controlled by the group"
+        }
+      },
+      "strategy": {
+        "name": "Dispatch strategy",
+        "state": {
+          "simultaneous": "Simultaneous",
+          "soc_balance": "SOC balancing",
+          "priority": "Priority"
         }
       }
     },
@@ -226,6 +308,31 @@
       "reset_learning": {
         "name": "Reset learning"
       }
+    }
+  },
+  "exceptions": {
+    "write_failed": {
+      "message": "The battery rejected the command: {error}"
+    },
+    "measure_impossible": {
+      "message": "Measurement impossible: the battery is too full, too empty or already at its limit."
+    },
+    "grid_sensor_required": {
+      "message": "This mode needs a grid sensor: Settings → Devices & services → Zendure SolarFlow Local → Configure → “Grid sensor”."
+    }
+  },
+  "issues": {
+    "unknown_pack_type": {
+      "title": "Unknown capacity for {battery}",
+      "description": "Battery {battery} contains a pack of unknown type ({types}). Its capacity cannot be computed: fill in “Capacity (kWh)” in the battery options."
+    },
+    "member_unavailable": {
+      "title": "{battery} unavailable in group {group}",
+      "description": "Battery {battery} is unreachable, in fault or in protection. Group {group} keeps running with the other batteries (“Degraded” state) and will take it back when it returns."
+    },
+    "member_left_group": {
+      "title": "{battery} is no longer controlled by group {group}",
+      "description": "The mode of battery {battery} was changed: it no longer follows group {group}, which keeps running without it. To put it back, choose the “Controlled by the group” mode on the battery."
     }
   }
 }

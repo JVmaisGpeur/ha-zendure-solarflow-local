@@ -1,19 +1,19 @@
-"""Sélecteurs : sens AC (charge/décharge) et mode hors-réseau."""
+"""Sélecteurs : mode de fonctionnement, stratégie d'un groupe, sens AC et mode hors-réseau."""
 
 from __future__ import annotations
 
-from homeassistant.components.select import SelectEntity
-from homeassistant.const import EntityCategory
 from typing import Any
 
+from homeassistant.components.select import SelectEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import ZendureConfigEntry
-from .const import MODE_MANUAL, MODES
-from .coordinator import ZendureCoordinator
+from .const import DEFAULT_STRATEGY, MODE_GROUP, MODE_MANUAL, MODES, STRATEGIES
 from .entity import ZendureEntity
+from .group import find_group_entry
 
 AC_MODES = {1: "charge", 2: "discharge"}
 GRID_OFF_MODES = {0: "standard", 1: "economic", 2: "closed"}
@@ -23,6 +23,9 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ZendureConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     c = entry.runtime_data
+    if getattr(c, "is_group", False):
+        async_add_entities([ZendureModeSelect(c), ZendureStrategySelect(c)])
+        return
     async_add_entities(
         [
             ZendureModeSelect(c),
@@ -35,7 +38,7 @@ async def async_setup_entry(
 class ZendureSelect(ZendureEntity, SelectEntity):
     def __init__(
         self,
-        coordinator: ZendureCoordinator,
+        coordinator,
         key: str,
         prop: str,
         mapping: dict[int, str],
@@ -63,27 +66,53 @@ class ZendureSelect(ZendureEntity, SelectEntity):
 
 
 class ZendureModeSelect(ZendureEntity, SelectEntity, RestoreEntity):
-    """Mode de fonctionnement : Arrêt, Manuel, Couplage / Décharge / Charge intelligente, Stocker le solaire."""
+    """Mode de fonctionnement (clés du contrat d'interface).
+
+    Sur une batterie membre d'un groupe, l'option « group » (Pilotée par le groupe) s'ajoute.
+    """
 
     _attr_translation_key = "operating_mode"
-    _attr_options = MODES
+    _follow_regulator = True
 
-    def __init__(self, coordinator: ZendureCoordinator) -> None:
+    def __init__(self, coordinator) -> None:
         super().__init__(coordinator, "operating_mode")
 
     @property
     def _reg(self):
         return self.coordinator.regulator
 
+    def _group_entry(self):
+        if self.is_group or self.hass is None:
+            return None
+        return find_group_entry(self.hass, self.coordinator.config_entry.entry_id)
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def options(self) -> list[str]:
+        if self._group_entry() is not None:
+            return [*MODES, MODE_GROUP]
+        return list(MODES)
+
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        self.async_on_remove(self._reg.add_listener(self.async_write_ha_state))
         last = await self.async_get_last_state()
-        if last is not None and last.state in MODES and last.state != MODE_MANUAL:
-            try:
-                await self._reg.async_set_mode(last.state, apply=False)
-            except Exception:  # noqa: BLE001 - capteur retiré entre-temps
-                await self._reg.async_set_mode(MODE_MANUAL, apply=False)
+        last_mode = last.state if last is not None else None
+        member = self._group_entry() is not None
+        if member and last_mode in (None, MODE_GROUP):
+            mode = MODE_GROUP
+        elif last_mode in MODES:
+            mode = last_mode
+        else:
+            mode = MODE_MANUAL  # ex. « group » alors que le groupe a été supprimé
+        if mode == MODE_MANUAL:
+            return
+        try:
+            await self._reg.async_set_mode(mode, apply=False)
+        except Exception:  # noqa: BLE001 - capteur retiré entre-temps
+            await self._reg.async_set_mode(MODE_MANUAL, apply=False)
 
     @property
     def current_option(self) -> str | None:
@@ -91,14 +120,52 @@ class ZendureModeSelect(ZendureEntity, SelectEntity, RestoreEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return {
-            "statut": self._reg.status,
+        attrs: dict[str, Any] = {
             "capteur_reseau": self._reg.sensor,
             "inverser_signe": self._reg.invert,
             "capteur_solaire": self._reg.solar_sensor,
             "puissance_reseau": self._reg.last_grid,
             "consigne": self.coordinator.power_setpoint,
         }
+        group = self._group_entry()
+        if group is not None:
+            attrs["group_name"] = group.title
+        if self.is_group:
+            hub = self.coordinator
+            attrs["batteries"] = [
+                {"entry_id": eid, "name": hub.member_name(eid), "active": eid in hub.active()} for eid in hub.member_ids
+            ]
+        return attrs
 
     async def async_select_option(self, option: str) -> None:
         await self._reg.async_set_mode(option)
+
+
+class ZendureStrategySelect(ZendureEntity, SelectEntity, RestoreEntity):
+    """Stratégie de répartition d'un groupe : simultaneous, soc_balance, priority."""
+
+    _attr_translation_key = "strategy"
+    _attr_options = STRATEGIES
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "strategy")
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        self.coordinator.strategy = last.state if last is not None and last.state in STRATEGIES else DEFAULT_STRATEGY
+
+    @property
+    def current_option(self) -> str | None:
+        return self.coordinator.strategy
+
+    async def async_select_option(self, option: str) -> None:
+        self.coordinator.strategy = option
+        self.async_write_ha_state()
+        hub = self.coordinator
+        if hub.power_setpoint:
+            await hub.async_set_power(hub.power_setpoint)  # nouvelle répartition tout de suite

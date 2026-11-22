@@ -1,5 +1,48 @@
 # Changelog
 
+## v1.3.0
+
+### Nouveautés
+- **Groupe de batteries** : 2 à 4 batteries (modèles différents acceptés) sous un seul régulateur qui lit le compteur une fois et répartit la consigne. Stratégies `simultaneous`, `soc_balance` (par défaut) et `priority`. Jamais une batterie en charge pendant qu'une autre décharge ; limites de chaque batterie respectées ; batterie injoignable ou en défaut retirée de la répartition (état `degraded`, alerte Réparations) puis reprise à son retour.
+- Nouveau mode **Pilotée par le groupe** (`group`) sur une batterie membre ; changer son mode la sort du pilotage (alerte), retirer une batterie ou supprimer le groupe lui rend son mode d'avant.
+- **Limite de soutirage** (`import_limit`) et **SOC cible de charge** (`charge_target_soc`) : entités réglables à chaud, conservées au redémarrage, aussi dans la carte. Arrêt de la Charge réseau au SOC cible, reprise 3 points en dessous.
+- **Capacité réelle** calculée d'après le type de chaque pack (AB3000, AB2000S, AB3000L, I2400) : `usable_capacity`, `available_energy`, `missing_energy`. Alerte et saisie manuelle si un pack est inconnu.
+- **Limites de puissance** : options distinctes de charge et de décharge (reprennent l'ancienne « puissance max »), **limite du circuit** par batterie, **circuits partagés** dans un groupe, et limites annoncées par la batterie. Capteurs `max_charge_power` / `max_discharge_power`.
+- Capteur **`regulation_state`** : ce que fait la régulation, avec des clés stables et traduites.
+- Intégration et carte **entièrement bilingues** français / anglais (messages d'erreur et alertes compris) ; README en français et en anglais (`README.en.md`).
+- Carte : vue Groupe (SOC global, une ligne par batterie, stratégie), bloc Charge réseau, batterie membre « Pilotée par le groupe », capacité réelle, état de la régulation traduit.
+
+### Corrections
+- La capacité affichée par la carte n'est plus déduite du nom du modèle (une 2400 AC+ à 5 packs affichait 8 kWh au lieu de 12,0 kWh).
+- Charge réseau : au-dessus de la limite de soutirage, la correction se fait en une fois (retour sous la limite en environ 4 s au lieu de 7 s en simulation).
+- Régulation : plus de recalcul en boucle quand le délai restant avant le prochain calcul est quasi nul.
+
+### Changements visibles
+- **L'attribut texte `statut` du sélecteur de mode est supprimé**, remplacé par le capteur **`regulation_state`** (clés stables, traduites à l'affichage). Une automatisation qui lisait `statut` doit lire `regulation_state` à la place :
+
+| Ancien `statut` | Nouveau `regulation_state` |
+|---|---|
+| `arrêt` | `off` |
+| `manuel` | `manual` |
+| `démarrage`, `stable`, `charge`, `décharge`, `repos`, `affinage`, `ajustement en cours` | `regulating` (ou `grid_charging` en Charge réseau) |
+| `batterie pleine` | `soc_max_reached` |
+| `batterie vide` | `soc_min_reached` |
+| `capteur indisponible → repos` | `sensor_unavailable` |
+| `erreur : …` | `error` |
+| — (nouveau) | `target_reached`, `import_limited`, `group`, `degraded` |
+
+- L'option « Puissance max » est remplacée par « Puissance de charge maximale » et « Puissance de décharge maximale », qui reprennent automatiquement sa valeur.
+- L'ajout d'une batterie passe par un menu « Ajouter une batterie / Créer un groupe de batteries » dès qu'au moins deux batteries sont disponibles.
+
+### Interface
+- Première **version d'interface (1)** pour les autres intégrations : voir la section « Interface pour les autres intégrations » du README. Toutes les clés sont en anglais. Aucun élément existant n'est renommé ni supprimé : les `entity_id` et `unique_id` de la v1.2.0 sont conservés (vérifié par test).
+
+### Après la mise à jour
+1. Mets à jour dans HACS, puis redémarre Home Assistant.
+2. Si tu utilisais l'attribut `statut` dans une automatisation, passe au capteur `regulation_state` (tableau ci-dessus).
+3. Si la carte ne change pas, vide le cache du navigateur ou de l'app.
+
+
 ## v1.2.0
 
 - **Mode manuel dans la carte** : cases **Charge manuelle** / **Décharge manuelle** et saisie de la puissance en W (plus de curseur), bouton **Mettre au repos**

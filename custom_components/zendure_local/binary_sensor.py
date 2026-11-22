@@ -12,7 +12,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import ZendureConfigEntry
-from .coordinator import ZendureCoordinator
 from .entity import ZendureEntity
 
 # (description, propriété zenSDK)
@@ -33,11 +32,13 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ZendureConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     c = entry.runtime_data
+    if getattr(c, "is_group", False):
+        return
     async_add_entities(ZendureBinarySensor(c, d, prop) for d, prop in BINARY_SENSORS)
 
 
 class ZendureBinarySensor(ZendureEntity, BinarySensorEntity):
-    def __init__(self, coordinator: ZendureCoordinator, description: BinarySensorEntityDescription, prop: str) -> None:
+    def __init__(self, coordinator, description: BinarySensorEntityDescription, prop: str) -> None:
         super().__init__(coordinator, description.key)
         self.entity_description = description
         self._prop = prop

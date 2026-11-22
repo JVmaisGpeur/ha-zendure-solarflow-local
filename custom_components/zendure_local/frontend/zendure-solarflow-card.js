@@ -12,7 +12,7 @@
  *   show_history: true    # courbe des dernières 24 h
  *   show_flow: true       # schéma des flux d'énergie
  */
-const CARD_VERSION = "1.2.0";
+const CARD_VERSION = "1.3.0";
 const DOMAIN = "zendure_local";
 
 const I18N = {
@@ -25,13 +25,18 @@ const I18N = {
     socLimits: "Niveaux de charge", socMin: "Minimum", socMax: "Maximum",
     manualTitle: "Puissance manuelle", manualCharge: "Charge manuelle", manualDischarge: "Décharge manuelle",
     power: "Puissance", rest: "Mettre au repos (0 W)",
+    gridCharge: "Charge réseau", importLimit: "Limite de soutirage", chargeTarget: "SOC cible de charge",
+    ignoredBy: "Ignoré : réglé par le groupe {g}", pilotedBy: "Pilotée par le groupe {g}",
+    strategy: "Stratégie de répartition", batteries: "Batteries", activeBatteries: "Actives",
+    strategies: { simultaneous: "Simultanée", soc_balance: "Équilibrage des SOC", priority: "Priorité" },
     notFound: "Aucune batterie Zendure trouvée. Vérifie que l'intégration « Zendure SolarFlow Local » est configurée.",
     noSensor: "Ce mode a besoin d'un capteur réseau : Paramètres → Appareils et services → Zendure → Configurer.",
-    ed: { device_id: "Batterie (si plusieurs)", name: "Titre", capacity: "Capacité (kWh, vide = automatique)",
+    ed: { device_id: "Batterie ou groupe de batteries", name: "Titre", capacity: "Capacité (kWh, vide = automatique)",
           solar_entity: "Capteur de production solaire (facultatif)", consumers: "Appareils à afficher dans les flux (5 max)",
           show_history: "Afficher la courbe 24 h", show_flow: "Afficher les flux d'énergie" },
     modes: { off: "Arrêt", manual: "Puissance manuelle", smart: "Couplage intelligent",
-             smart_discharge: "Décharge intelligente", smart_charge: "Charge intelligente", solar: "Stocker le solaire", grid_charge: "Charge réseau" },
+             smart_discharge: "Décharge intelligente", smart_charge: "Charge intelligente", solar: "Stocker le solaire", grid_charge: "Charge réseau",
+             group: "Pilotée par le groupe" },
   },
   en: {
     grid: "Grid", home: "Home", battery: "Battery", solar: "Solar",
@@ -42,17 +47,23 @@ const I18N = {
     socLimits: "Charge levels", socMin: "Minimum", socMax: "Maximum",
     manualTitle: "Manual power", manualCharge: "Manual charge", manualDischarge: "Manual discharge",
     power: "Power", rest: "Set to idle (0 W)",
+    gridCharge: "Grid charge", importLimit: "Grid import limit", chargeTarget: "Charge target SOC",
+    ignoredBy: "Ignored: set by group {g}", pilotedBy: "Controlled by group {g}",
+    strategy: "Dispatch strategy", batteries: "Batteries", activeBatteries: "Active",
+    strategies: { simultaneous: "Simultaneous", soc_balance: "SOC balancing", priority: "Priority" },
     notFound: "No Zendure battery found. Make sure the “Zendure SolarFlow Local” integration is set up.",
     noSensor: "This mode needs a grid sensor: Settings → Devices & services → Zendure → Configure.",
-    ed: { device_id: "Battery (if several)", name: "Title", capacity: "Capacity (kWh, empty = auto)",
+    ed: { device_id: "Battery or battery group", name: "Title", capacity: "Capacity (kWh, empty = auto)",
           solar_entity: "Solar production sensor (optional)", consumers: "Devices shown in the flow (max 5)",
           show_history: "Show 24 h chart", show_flow: "Show energy flow" },
     modes: { off: "Off", manual: "Manual power", smart: "Smart matching",
-             smart_discharge: "Smart discharge", smart_charge: "Smart charge", solar: "Store solar", grid_charge: "Grid charge" },
+             smart_discharge: "Smart discharge", smart_charge: "Smart charge", solar: "Store solar", grid_charge: "Grid charge",
+             group: "Controlled by the group" },
   },
 };
 
 const MODES = ["off", "manual", "smart", "smart_discharge", "smart_charge", "solar", "grid_charge"];
+const STRATEGIES = ["simultaneous", "soc_balance", "priority"];
 const REGULATED = ["smart", "smart_discharge", "smart_charge", "solar", "grid_charge"];
 const COLORS = { grid: "#4a90d9", solar: "#ff9800", battery: "#26c6a8", home: "#4a90d9" };
 const CONSUMER_COLORS = ["#d4e157", "#ba68c8", "#ab47bc", "#4dd0e1", "#f06292"];
@@ -165,8 +176,32 @@ class ZendureSolarflowCard extends HTMLElement {
     const v = this._watts(sel?.attributes?.capteur_reseau);
     return v === null ? null : sel.attributes.inverser_signe ? -v : v;
   }
+  _fmt(st) {
+    if (!st) return "—";
+    if (st.state === "unavailable") return this._t.unavailable;
+    try {
+      return this._hass.formatEntityState ? this._hass.formatEntityState(st) : st.state;
+    } catch (e) {
+      return st.state;
+    }
+  }
+  get _isGroup() {
+    return !!this._ents?.strategy;
+  }
+  // Entités d'une batterie membre d'un groupe (par l'appareil rattaché à son entrée)
+  _memberEnts(entryId) {
+    const dev = Object.values(this._hass.devices || {}).find((d) => (d.config_entries || []).includes(entryId));
+    if (!dev) return null;
+    const map = { deviceId: dev.id };
+    for (const e of Object.values(this._hass.entities || {})) {
+      if (e.device_id === dev.id && e.platform === DOMAIN && e.translation_key && !(e.translation_key in map)) map[e.translation_key] = e.entity_id;
+    }
+    return map;
+  }
   _capacity() {
     if (num(this._config.capacity)) return num(this._config.capacity);
+    const usable = this._val("usable_capacity");
+    if (usable) return usable;
     const model = `${this._device?.model || ""} ${this._device?.name || ""}`.toLowerCase();
     if (/mix/.test(model)) return 8; // SolarFlow 3000 / 4000 Mix : 8 kWh
     const packs = this._val("pack_num") || 1;
@@ -281,6 +316,8 @@ class ZendureSolarflowCard extends HTMLElement {
           <svg id="spark" viewBox="0 0 300 48" preserveAspectRatio="none"></svg>
         </div>` : ""}
 
+        <div class="members" id="members"></div>
+
         <div class="tiles4">
           <div class="stat" id="s-avail"><small>${t.available}</small><b id="v-avail">—</b></div>
           <div class="stat" id="s-cap"><small>${t.capacity}</small><b id="v-cap">—</b></div>
@@ -314,6 +351,12 @@ class ZendureSolarflowCard extends HTMLElement {
             <ha-icon icon="mdi:menu-down"></ha-icon>
           </div>
           <div class="hint" id="hint"></div>
+          <div class="note" id="member-note"></div>
+          <div class="slabel" id="strat-label">${t.strategy}</div>
+          <div class="selwrap" id="strat-wrap">
+            <select id="strategy">${STRATEGIES.map((m) => `<option value="${m}">${t.strategies[m]}</option>`).join("")}</select>
+            <ha-icon icon="mdi:menu-down"></ha-icon>
+          </div>
           <div class="manual" id="manual">
             <div class="crow">
               <div class="cicon"><ha-icon icon="mdi:hand-back-right-outline"></ha-icon></div>
@@ -327,7 +370,19 @@ class ZendureSolarflowCard extends HTMLElement {
               <div class="field"><input type="number" id="in-pw" inputmode="numeric" step="10" min="0" /><em>W</em></div></label>
             <button class="rest" id="b-rest"><ha-icon icon="mdi:pause-circle-outline"></ha-icon>${t.rest}</button>
           </div>
-          <div class="socbox">
+          <div class="socbox" id="gcbox">
+            <div class="crow">
+              <div class="cicon"><ha-icon icon="mdi:transmission-tower-import"></ha-icon></div>
+              <div><div class="ctitle">${t.gridCharge}</div><div class="csub warn" id="gc-ignored"></div></div>
+            </div>
+            <div class="socgrid">
+              <label class="socin"><span>${t.importLimit}</span>
+                <div class="field"><input type="number" id="in-imp" inputmode="numeric" step="100" min="0" /><em>W</em></div></label>
+              <label class="socin"><span>${t.chargeTarget}</span>
+                <div class="field"><input type="number" id="in-tgt" inputmode="numeric" step="1" min="0" max="100" /><em>%</em></div></label>
+            </div>
+          </div>
+          <div class="socbox" id="socbox">
             <div class="crow">
               <div class="cicon"><ha-icon icon="mdi:battery-sync-outline"></ha-icon></div>
               <div class="ctitle">${t.socLimits}</div>
@@ -386,8 +441,12 @@ class ZendureSolarflowCard extends HTMLElement {
       this._hass.callService("number", "set_value", { entity_id: this._ents.power_setpoint, value: 0 });
     });
 
-    // SOC min / max : envoi à la validation (Entrée ou sortie du champ)
-    for (const [id, key] of [["in-min", "min_soc"], ["in-max", "soc_set"]]) {
+    $("strategy").addEventListener("change", (ev) => {
+      this._hass.callService("select", "select_option", { entity_id: this._ents.strategy, option: ev.target.value });
+    });
+
+    // SOC min / max, limite de soutirage, SOC cible : envoi à la validation (Entrée ou sortie du champ)
+    for (const [id, key] of [["in-min", "min_soc"], ["in-max", "soc_set"], ["in-imp", "import_limit"], ["in-tgt", "charge_target_soc"]]) {
       const input = $(id);
       input.addEventListener("focus", () => (this._editing = id));
       input.addEventListener("blur", () => (this._editing = null));
@@ -593,29 +652,55 @@ class ZendureSolarflowCard extends HTMLElement {
     const eIn = this._val("energy_charged"), eOut = this._val("energy_discharged");
     $("v-avail").innerHTML = avail === null ? "—" : `${avail.toFixed(2)}<small>kWh</small>`;
     $("v-cap").innerHTML = `${cap.toFixed(2)}<small>kWh</small>`;
+    const availE = this._val("available_energy");
+    if (availE !== null) $("v-avail").innerHTML = `${availE.toFixed(2)}<small>kWh</small>`;
     $("v-cyc").textContent = eOut === null ? "—" : Math.floor(eOut / cap);
     $("v-eff").innerHTML = eIn && eOut && eIn > 0.5 ? `${Math.min(100, Math.round((eOut / eIn) * 100))}<small>%</small>` : "—";
     const temp = this._val("temperature");
-    $("v-temp").textContent = temp === null ? "—" : `${temp.toFixed(1).replace(".", ",")} °C`;
-    const statut = sel?.attributes?.statut || "";
-    $("v-status").textContent = statut ? statut.charAt(0).toUpperCase() + statut.slice(1) : "—";
+    const lang = this._hass?.locale?.language || this._hass?.language || "en";
+    $("v-temp").textContent = temp === null ? "—" : `${temp.toLocaleString(lang, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C`;
+    $("v-status").textContent = this._fmt(this._state("regulation_state"));
+    $("s-cyc").style.display = this._ents.energy_discharged ? "" : "none";
+    $("s-eff").style.display = this._ents.energy_charged ? "" : "none";
+    $("c-temp").style.display = this._ents.temperature ? "" : "none";
+    this._renderMembers();
 
     // ---- Flux
     if (this._config.show_flow && this._nodes) this._renderFlow({ grid, solar, bat, home, soc });
 
     // ---- Pilotage
     const select = $("mode");
-    if (document.activeElement !== this && this.shadowRoot.activeElement !== select) select.value = mode;
-    select.disabled = unavailable;
+    const opts = sel?.attributes?.options || MODES;
+    const sig = opts.join(",");
+    if (this._modeSig !== sig) {
+      this._modeSig = sig;
+      select.innerHTML = opts.map((m) => `<option value="${m}">${t.modes[m] || m}</option>`).join("");
+    }
+    if (this.shadowRoot.activeElement !== select) select.value = mode;
+    select.disabled = unavailable && !this._isGroup;
     $("mode-sub").textContent = t.modes[mode] || mode || "—";
+    // Batterie membre d'un groupe (G4, G11)
+    const groupName = sel?.attributes?.group_name;
+    const member = mode === "group" && groupName;
+    if (member) $("mode-sub").textContent = t.pilotedBy.replace("{g}", groupName);
+    $("member-note").classList.remove("show");
+    // Stratégie (groupe)
+    $("strat-wrap").style.display = $("strat-label").style.display = this._isGroup ? "" : "none";
+    if (this._isGroup && this.shadowRoot.activeElement !== $("strategy")) $("strategy").value = this._state("strategy")?.state;
+    // Charge réseau (Z1, Z4) ; réglages ignorés sur une batterie membre (G3 bis)
+    $("gcbox").style.display = this._ents.import_limit ? "" : "none";
+    const ignored = this._state("import_limit")?.attributes?.ignored_by_group;
+    $("gc-ignored").textContent = ignored ? t.ignoredBy.replace("{g}", ignored) : "";
+    $("gcbox").classList.toggle("ignored", !!ignored);
+    $("socbox").style.display = this._ents.min_soc ? "" : "none";
     if (sel?.attributes?.capteur_reseau) $("hint").classList.remove("show");
-    for (const [id, key] of [["in-min", "min_soc"], ["in-max", "soc_set"]]) {
+    for (const [id, key] of [["in-min", "min_soc"], ["in-max", "soc_set"], ["in-imp", "import_limit"], ["in-tgt", "charge_target_soc"]]) {
       const st = this._state(key), input = $(id);
       input.disabled = !st || st.state === "unavailable";
       if (st) {
         input.min = st.attributes.min ?? 0;
         input.max = st.attributes.max ?? 100;
-        $(id.replace("in-", "rg-")).textContent = `(${input.min} – ${input.max} %)`;
+        if ($(id.replace("in-", "rg-"))) $(id.replace("in-", "rg-")).textContent = `(${input.min} – ${input.max} %)`;
         if (this._editing !== id) input.value = num(st.state) === null ? "" : Math.round(num(st.state));
       }
     }
@@ -632,6 +717,34 @@ class ZendureSolarflowCard extends HTMLElement {
       this._renderDir();
       if (this._editing !== "in-pw") $("in-pw").value = Math.abs(w);
       $("in-pw").disabled = $("b-rest").disabled = sp.state === "unavailable";
+    }
+  }
+
+  _renderMembers() {
+    const box = this._$("members");
+    const list = this._isGroup ? this._state("operating_mode")?.attributes?.batteries || [] : [];
+    box.style.display = list.length ? "" : "none";
+    if (!list.length) return;
+    const t = this._t;
+    const rows = list.map((b) => {
+      const ents = this._memberEnts(b.entry_id) || {};
+      const st = (k) => (ents[k] ? this._hass.states[ents[k]] : undefined);
+      const soc = num(st("electric_level")?.state);
+      const p = num(st("battery_power")?.state);
+      const state = b.active ? this._fmt(st("regulation_state")) : t.unavailable;
+      const cls = !b.active ? "off" : p > 5 ? "charging" : p < -5 ? "discharging" : "";
+      return `<div class="mrow2 ${cls}" data-e="${ents.electric_level || ""}">
+        <div class="mname">${prettyModel(b.name) || b.name}</div>
+        <div class="mbar"><i style="width:${soc ?? 0}%"></i></div>
+        <div class="msoc">${soc === null ? "—" : Math.round(soc) + " %"}</div>
+        <div class="mpow">${p === null ? "—" : (p > 5 ? "↓ " : p < -5 ? "↑ " : "") + fmtW(p)}</div>
+        <div class="mstate">${state}</div></div>`;
+    });
+    const html = `<div class="mhead"><span>${t.batteries}</span><b>${t.activeBatteries} : ${this._val("active_batteries") ?? "—"} / ${list.length}</b></div>${rows.join("")}`;
+    if (html !== this._membersHtml) {
+      this._membersHtml = html;
+      box.innerHTML = html;
+      box.querySelectorAll(".mrow2").forEach((r) => r.addEventListener("click", () => this._moreInfo(r.dataset.e)));
     }
   }
 
@@ -857,6 +970,26 @@ const STYLE = `
                  font-weight: 700; color: var(--primary-text-color); padding: 10px 0; -moz-appearance: textfield; }
   .field input::-webkit-inner-spin-button, .field input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .field em { font-style: normal; color: var(--z-muted); font-size: 1.1em; }
+  .slabel { font-size: .8em; color: var(--z-muted); margin-bottom: -4px; }
+  .note { display: none; font-size: .82em; color: var(--z-accent, var(--primary-color)); font-weight: 600; }
+  .note.show { display: block; }
+  .csub.warn { color: var(--z-orange); }
+  #gcbox.ignored .field { opacity: .5; }
+  #strat-wrap { margin-top: -2px; }
+  .members { display: flex; flex-direction: column; gap: 6px; }
+  .mhead { display: flex; justify-content: space-between; font-size: .78em; color: var(--z-muted); }
+  .mhead b { color: var(--primary-text-color); font-weight: 600; }
+  .mrow2 { display: grid; grid-template-columns: minmax(0, 1.6fr) 1fr auto auto; grid-template-rows: auto auto; gap: 2px 10px;
+           align-items: center; padding: 10px 12px; border-radius: 14px; background: var(--z-panel); cursor: pointer; }
+  .mrow2 .mname { font-weight: 600; font-size: .88em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mrow2 .mbar { height: 6px; border-radius: 3px; background: rgba(127,127,127,.25); overflow: hidden; }
+  .mrow2 .mbar i { display: block; height: 100%; background: var(--z-green); border-radius: 3px; }
+  .mrow2 .msoc { font-weight: 700; font-size: .88em; text-align: right; }
+  .mrow2 .mpow { font-size: .82em; text-align: right; min-width: 64px; }
+  .mrow2 .mstate { grid-column: 1 / -1; font-size: .72em; color: var(--z-muted); }
+  .mrow2.charging .mpow { color: var(--z-green); }
+  .mrow2.discharging .mpow { color: var(--z-orange); }
+  .mrow2.off { opacity: .55; }
   .hint { display: none; font-size: .78em; color: var(--z-orange); }
   .hint.show { display: block; }
   .manual { display: none; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--z-line); }

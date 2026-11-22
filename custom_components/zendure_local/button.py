@@ -8,7 +8,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import ZendureConfigEntry
-from .coordinator import ZendureCoordinator
 from .entity import ZendureEntity
 
 
@@ -25,7 +24,7 @@ class ZendureMeasureButton(ZendureEntity, ButtonEntity):
     _attr_translation_key = "measure_response"
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, coordinator: ZendureCoordinator) -> None:
+    def __init__(self, coordinator) -> None:
         super().__init__(coordinator, "measure_response")
 
     async def async_press(self) -> None:
@@ -36,7 +35,7 @@ class ZendureResetLearningButton(ZendureEntity, ButtonEntity):
     _attr_translation_key = "reset_learning"
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, coordinator: ZendureCoordinator) -> None:
+    def __init__(self, coordinator) -> None:
         super().__init__(coordinator, "reset_learning")
 
     async def async_press(self) -> None:
