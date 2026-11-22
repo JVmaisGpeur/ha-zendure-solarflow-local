@@ -72,6 +72,8 @@ from .const import (
 )
 
 CONF_SERIALS = "serials"
+CONF_CREATE_GROUP = "create_group"
+DEFAULT_GROUP_NAME = "Batteries"
 PRIORITY_KEYS = [f"{CONF_PRIORITY}_{i}" for i in range(1, MAX_MEMBERS + 1)]
 
 
@@ -143,6 +145,7 @@ class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
         self._host: str | None = None
         self._report: dict[str, Any] = {}
         self._found: list = []
+        self._pending: dict[str, Any] = {}
 
     async def _async_probe(self, host: str) -> dict[str, Any]:
         api = ZendureApi(async_get_clientsession(self.hass), host)
@@ -165,46 +168,41 @@ class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_pick(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Ajoute en une fois les batteries trouvées que l'on a cochées."""
+        """Ajoute en une fois les batteries cochées et, si demandé, crée leur groupe."""
         by_sn = {b.sn: b for b in self._found}
+        errors: dict[str, str] = {}
         if user_input is not None:
             chosen = [by_sn[sn] for sn in user_input.get(CONF_SERIALS) or [] if sn in by_sn]
-            if chosen:
-                first, others = chosen[0], chosen[1:]
-                for bat in others:
-                    # Chaque batterie a sa propre entrée : les suivantes sont créées à part
-                    self.hass.async_create_task(
-                        self.hass.config_entries.flow.async_init(
-                            DOMAIN,
-                            context={"source": SOURCE_INTEGRATION_DISCOVERY},
-                            data={CONF_HOST: bat.host, "sn": bat.sn, "product": bat.product},
-                        )
-                    )
-                await self.async_set_unique_id(first.sn, raise_on_progress=False)
-                self._abort_if_unique_id_configured(updates={CONF_HOST: first.host})
-                return self.async_create_entry(
-                    title=_title({"product": first.product}), data={CONF_HOST: first.host}
-                )
-        return self.async_show_form(
-            step_id="pick",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_SERIALS, default=list(by_sn)): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=[
-                                selector.SelectOptionDict(
-                                    value=b.sn, label=f"{_title({'product': b.product})} — {b.host}"
-                                )
-                                for b in self._found
-                            ],
-                            multiple=True,
-                            mode="list",
-                        )
-                    )
+            make_group = bool(user_input.get(CONF_CREATE_GROUP)) and len(chosen) > 1
+            if not chosen:
+                errors["base"] = "nothing_selected"
+            elif make_group and len(chosen) > MAX_MEMBERS:
+                errors[CONF_SERIALS] = "members_count"
+            else:
+                self._pending = {
+                    "kind": "pick",
+                    "chosen": chosen,
+                    "group": make_group,
+                    "name": (user_input.get(CONF_NAME) or "").strip() or DEFAULT_GROUP_NAME,
                 }
-            ),
-            errors={"base": "nothing_selected"} if user_input is not None else {},
-        )
+                return await self.async_step_sensors()
+
+        fields: dict = {
+            vol.Required(CONF_SERIALS, default=list(by_sn)): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value=b.sn, label=f"{_title({'product': b.product})} — {b.host}")
+                        for b in self._found
+                    ],
+                    multiple=True,
+                    mode="list",
+                )
+            )
+        }
+        if len(self._found) > 1:
+            fields[vol.Optional(CONF_CREATE_GROUP, default=True)] = bool
+            fields[vol.Optional(CONF_NAME, default=DEFAULT_GROUP_NAME)] = str
+        return self.async_show_form(step_id="pick", data_schema=vol.Schema(fields), errors=errors)
 
     async def async_step_integration_discovery(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:
         """Batterie cochée dans la liste : ajoutée directement, sans autre question."""
@@ -213,6 +211,7 @@ class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_create_entry(
             title=_title({"product": discovery_info.get("product")}),
             data={CONF_HOST: discovery_info[CONF_HOST]},
+            options=dict(discovery_info.get("options") or {}),
         )
 
     async def async_step_battery(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -230,7 +229,8 @@ class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
                 else:
                     await self.async_set_unique_id(sn)
                     self._abort_if_unique_id_configured(updates={CONF_HOST: host})
-                    return self.async_create_entry(title=_title(report), data={CONF_HOST: host})
+                    self._pending = {"kind": "battery", "title": _title(report), "host": host}
+                    return await self.async_step_sensors()
 
         return self.async_show_form(
             step_id="battery",
@@ -250,9 +250,8 @@ class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors[CONF_MEMBERS] = "members_count"
             else:
                 name = user_input[CONF_NAME].strip()
-                return self.async_create_entry(
-                    title=name, data={CONF_ENTRY_TYPE: ENTRY_TYPE_GROUP, CONF_NAME: name, CONF_MEMBERS: members}
-                )
+                self._pending = {"kind": "group", "name": name, "members": members}
+                return await self.async_step_sensors()
         return self.async_show_form(
             step_id="group",
             data_schema=vol.Schema(
@@ -284,10 +283,83 @@ class ZendureConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_zeroconf_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
-            return self.async_create_entry(title=_title(self._report), data={CONF_HOST: self._host})
+            self._pending = {"kind": "battery", "title": _title(self._report), "host": self._host}
+            return await self.async_step_sensors()
         return self.async_show_form(
             step_id="zeroconf_confirm",
             description_placeholders={"name": _title(self._report), "host": self._host or ""},
+        )
+
+    async def async_step_sensors(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Capteur de puissance au compteur (obligatoire) et production solaire (facultative)."""
+        if user_input is not None:
+            options = {
+                CONF_GRID_SENSOR: user_input[CONF_GRID_SENSOR],
+                CONF_INVERT_GRID: bool(user_input.get(CONF_INVERT_GRID, False)),
+            }
+            if user_input.get(CONF_SOLAR_SENSOR):
+                options[CONF_SOLAR_SENSOR] = user_input[CONF_SOLAR_SENSOR]
+            return await self._async_finish(options)
+        return self.async_show_form(
+            step_id="sensors",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_GRID_SENSOR): _power_sensor(),
+                    vol.Required(CONF_INVERT_GRID, default=False): bool,
+                    vol.Optional(CONF_SOLAR_SENSOR): _power_sensor(),
+                }
+            ),
+        )
+
+    async def _async_finish(self, options: dict[str, Any]) -> ConfigFlowResult:
+        pending = self._pending
+        kind = pending["kind"]
+        if kind == "battery":
+            return self.async_create_entry(title=pending["title"], data={CONF_HOST: pending["host"]}, options=options)
+        if kind == "group":
+            return self._create_group(pending["name"], pending["members"], options)
+        # kind == "pick"
+        chosen = pending["chosen"]
+        if pending["group"]:
+            # Chaque batterie a sa propre entrée, puis cet assistant crée le groupe.
+            # Les capteurs vont sur le groupe : c'est lui qui régule.
+            members: list[str] = []
+            for bat in chosen:
+                result = await self.hass.config_entries.flow.async_init(
+                    DOMAIN,
+                    context={"source": SOURCE_INTEGRATION_DISCOVERY},
+                    data={CONF_HOST: bat.host, "sn": bat.sn, "product": bat.product},
+                )
+                entry = result.get("result")
+                if entry is None:  # déjà configurée : on reprend l'entrée existante
+                    entry = self.hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, bat.sn)
+                if entry is not None:
+                    members.append(entry.entry_id)
+            taken = {m for e in self.hass.config_entries.async_entries(DOMAIN) if _is_group(e) for m in _members_of(e)}
+            members = [m for m in members if m not in taken]
+            if len(members) < MIN_MEMBERS:
+                return self.async_abort(reason="not_enough_batteries")
+            return self._create_group(pending["name"], members, options)
+        first, others = chosen[0], chosen[1:]
+        for bat in others:
+            self.hass.async_create_task(
+                self.hass.config_entries.flow.async_init(
+                    DOMAIN,
+                    context={"source": SOURCE_INTEGRATION_DISCOVERY},
+                    data={CONF_HOST: bat.host, "sn": bat.sn, "product": bat.product, "options": options},
+                )
+            )
+        await self.async_set_unique_id(first.sn, raise_on_progress=False)
+        self._abort_if_unique_id_configured(updates={CONF_HOST: first.host})
+        return self.async_create_entry(
+            title=_title({"product": first.product}), data={CONF_HOST: first.host}, options=options
+        )
+
+    def _create_group(self, name: str, members: list[str], options: dict[str, Any]) -> ConfigFlowResult:
+        return self.async_create_entry(
+            title=name,
+            data={CONF_ENTRY_TYPE: ENTRY_TYPE_GROUP, CONF_NAME: name, CONF_MEMBERS: members},
+            options=options,
         )
 
     @staticmethod

@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.3.2
+
+### Nouveautés
+- **Capteurs demandés dès l'ajout** : l'assistant demande le capteur de puissance au compteur (obligatoire, avec l'option « Inverser le signe ») et le capteur de production solaire (facultatif). Pour un groupe, ils sont réglés sur le groupe. Plus besoin de passer par « Configurer » ni par la carte avant de choisir un mode.
+- **Groupe créé en même temps que les batteries** : dans « Ajouter les batteries trouvées », la case « Créer un groupe avec ces batteries » (cochée par défaut dès que deux batteries sont trouvées) crée les batteries et leur groupe en une seule fois.
+- Carte : le capteur solaire n'est plus proposé dans l'éditeur, il vient de l'intégration. `solar_entity` reste accepté en YAML pour le remplacer.
+
 ## v1.3.1
 
 ### Nouveautés

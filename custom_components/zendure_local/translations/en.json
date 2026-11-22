@@ -13,9 +13,11 @@
       },
       "pick": {
         "title": "Batteries found",
-        "description": "Tick the batteries to add. Each one becomes a device. To make them work together, then create a group (\"Add entry\" → \"Create a battery group\").",
+        "description": "Tick the batteries to add. Each one becomes a device. Leave “Create a group” ticked to make them work together: one mode, charge and discharge shared between them.",
         "data": {
-          "serials": "Batteries"
+          "serials": "Batteries",
+          "create_group": "Create a group with these batteries (one mode for all)",
+          "name": "Group name"
         }
       },
       "zeroconf_confirm": {
@@ -35,6 +37,15 @@
         "data": {
           "name": "Group name",
           "members": "Batteries in the group"
+        }
+      },
+      "sensors": {
+        "title": "Sensors",
+        "description": "The power sensor at the meter drives the regulation: positive when the home draws from the grid, negative when it exports. If your sensor does the opposite, tick “Invert sign”. The solar production sensor is optional: it is used by the “Store solar” mode and by the card. Everything can be changed later in “Configure”.",
+        "data": {
+          "grid_sensor": "Power sensor at the meter (W)",
+          "invert_grid": "Invert the sensor sign",
+          "solar_sensor": "Solar production sensor (W, optional)"
         }
       }
     },

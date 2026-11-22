@@ -13,9 +13,11 @@
       },
       "pick": {
         "title": "Batteries trouvées",
-        "description": "Coche les batteries à ajouter. Chacune devient un appareil. Pour les faire travailler ensemble, crée ensuite un groupe (« Ajouter une entrée » → « Créer un groupe de batteries »).",
+        "description": "Coche les batteries à ajouter. Chacune devient un appareil. Laisse « Créer un groupe » coché pour qu'elles travaillent ensemble : un seul mode, charge et décharge réparties entre elles.",
         "data": {
-          "serials": "Batteries"
+          "serials": "Batteries",
+          "create_group": "Créer un groupe avec ces batteries (un seul mode pour toutes)",
+          "name": "Nom du groupe"
         }
       },
       "zeroconf_confirm": {
@@ -35,6 +37,15 @@
         "data": {
           "name": "Nom du groupe",
           "members": "Batteries du groupe"
+        }
+      },
+      "sensors": {
+        "title": "Capteurs",
+        "description": "Le capteur de puissance au compteur sert à la régulation : positif quand la maison soutire au réseau, négatif quand elle injecte. Si ton capteur fait l'inverse, coche « Inverser le signe ». Le capteur de production solaire est facultatif : il sert au mode « Stocker le solaire » et à la carte. Tout se modifie ensuite dans « Configurer ».",
+        "data": {
+          "grid_sensor": "Capteur de puissance au compteur (W)",
+          "invert_grid": "Inverser le signe du capteur",
+          "solar_sensor": "Capteur de production solaire (W, facultatif)"
         }
       }
     },

@@ -6,13 +6,13 @@
  *   device_id: ...        # optionnel : choisir la batterie s'il y en a plusieurs
  *   name: ...             # optionnel : titre
  *   capacity: 8           # optionnel : capacité en kWh (sinon déduite du modèle)
- *   solar_entity: sensor.production_solaire   # optionnel : puissance solaire (W)
+ *   solar_entity: sensor.production_solaire   # optionnel, YAML : remplace le capteur solaire de l'intégration
  *   consumers:            # optionnel : jusqu'à 5 appareils affichés dans les flux
  *     - sensor.refrigerateur_puissance
  *   show_history: true    # courbe des dernières 24 h
  *   show_flow: true       # schéma des flux d'énergie
  */
-const CARD_VERSION = "1.3.1";
+const CARD_VERSION = "1.3.2";
 const DOMAIN = "zendure_local";
 
 const I18N = {
@@ -808,7 +808,6 @@ class ZendureSolarflowCardEditor extends HTMLElement {
         { name: "device_id", selector: { device: { integration: DOMAIN } } },
         { name: "name", selector: { text: {} } },
         { name: "capacity", selector: { number: { min: 0.5, max: 60, step: 0.01, mode: "box", unit_of_measurement: "kWh" } } },
-        { name: "solar_entity", selector: { entity: { domain: "sensor", device_class: "power" } } },
         { name: "consumers", selector: { entity: { domain: "sensor", device_class: "power", multiple: true } } },
         { name: "show_history", selector: { boolean: {} } },
         { name: "show_flow", selector: { boolean: {} } },

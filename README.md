@@ -20,9 +20,11 @@ Ne fonctionne **pas** avec : Hyper 2000, Hub 1200/2000, AIO 2400, Ace 1500 (pas 
 1. HACS → ⋮ → **Dépôts personnalisés** → `https://github.com/JVmaisGpeur/ha-zendure-solarflow-local`, catégorie **Intégration**.
 2. Installer **Zendure SolarFlow Local**, puis redémarrer Home Assistant.
 3. **Paramètres → Appareils et services → Ajouter une intégration** → *Zendure SolarFlow Local*. L'intégration cherche les batteries sur le réseau (quelques secondes), puis propose :
-   - **Ajouter les batteries trouvées** : coche-les, elles sont toutes ajoutées d'un coup ;
+   - **Ajouter les batteries trouvées** : coche-les, elles sont toutes ajoutées d'un coup. Avec deux batteries ou plus, la case **Créer un groupe** (cochée par défaut) crée aussi leur groupe ;
    - **Ajouter une batterie par son adresse IP**, si elle n'a pas été trouvée ;
    - **Créer un groupe de batteries**, dès que deux batteries sont ajoutées.
+
+   L'assistant demande ensuite le **capteur de puissance au compteur** (obligatoire : positif quand la maison soutire, négatif quand elle injecte) et, en facultatif, le **capteur de production solaire**. La carte n'a plus rien à demander. Tout se modifie ensuite dans **Configurer**.
 
 Installation manuelle : copier `custom_components/zendure_local` dans `config/custom_components/` puis redémarrer.
 
@@ -130,7 +132,7 @@ Tableau de bord → **Modifier** → **Ajouter une carte** → **Zendure SolarFl
 type: custom:zendure-solarflow-card
 device_id: ...                     # facultatif : batterie ou groupe (sinon le premier trouvé)
 name: Ma batterie                  # facultatif
-solar_entity: sensor.production_solaire_puissance   # facultatif
+solar_entity: sensor.production_solaire_puissance   # facultatif : remplace le capteur solaire réglé dans l'intégration
 consumers:                         # facultatif, 5 appareils max
   - sensor.refrigerateur_puissance
 show_history: true

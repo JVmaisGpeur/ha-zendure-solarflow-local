@@ -20,9 +20,11 @@ Does **not** work with: Hyper 2000, Hub 1200/2000, AIO 2400, Ace 1500 (no local 
 1. HACS → ⋮ → **Custom repositories** → `https://github.com/JVmaisGpeur/ha-zendure-solarflow-local`, category **Integration**.
 2. Install **Zendure SolarFlow Local**, then restart Home Assistant.
 3. **Settings → Devices & services → Add integration** → *Zendure SolarFlow Local*. The integration searches the network for batteries (a few seconds), then offers:
-   - **Add the batteries found**: tick them, they are all added at once;
+   - **Add the batteries found**: tick them, they are all added at once. With two or more batteries, the **Create a group** box (ticked by default) also creates their group;
    - **Add a battery by its IP address**, if it was not found;
    - **Create a battery group**, as soon as two batteries are added.
+
+   The wizard then asks for the **power sensor at the meter** (required: positive when the home draws from the grid, negative when it exports) and, optionally, the **solar production sensor**. The card has nothing left to ask. Everything can be changed later in **Configure**.
 
 Manual installation: copy `custom_components/zendure_local` into `config/custom_components/` and restart.
 
@@ -130,7 +132,7 @@ Dashboard → **Edit** → **Add card** → **Zendure SolarFlow**, or in YAML:
 type: custom:zendure-solarflow-card
 device_id: ...                     # optional: battery or group (otherwise the first one found)
 name: My battery                   # optional
-solar_entity: sensor.solar_power   # optional
+solar_entity: sensor.solar_power   # optional: overrides the solar sensor set in the integration
 consumers:                         # optional, up to 5 devices
   - sensor.fridge_power
 show_history: true
