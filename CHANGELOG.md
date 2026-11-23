@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.5.0
+
+### Nouveautés
+- **Carte, groupe de batteries** : chaque batterie affiche ses niveaux de charge **minimum et maximum**, en texte et en zones hachurées sur sa barre.
+- **Pilotage externe déclaré** (contrat d'interface v1, ajout compatible) :
+  - action `zendure_local.set_external_control` (`device_id`, `active`, `controller`, `controlled_keys`) : un pilote externe, comme le Chef d'orchestre énergie, déclare qu'il commande une batterie ou un groupe, et quels réglages ;
+  - la déclaration **expire après 30 minutes** sans renouvellement, et reste en place après un redémarrage tant qu'elle n'a pas expiré ;
+  - nouveau capteur `external_control` (`active` / `inactive`) avec les attributs `controller` et `controlled_keys`, sur chaque batterie et chaque groupe ;
+  - l'action ne change rien au fonctionnement de la batterie.
+
 ## v1.4.0
 
 ### Installation simplifiée

@@ -106,7 +106,7 @@ class HomeAssistant:  # remplacé par FakeHass
     pass
 
 
-_mod("homeassistant.core", HomeAssistant=HomeAssistant, callback=callback)
+_mod("homeassistant.core", HomeAssistant=HomeAssistant, callback=callback, CALLBACK_TYPE=object, ServiceCall=object)
 
 
 class HomeAssistantError(Exception):
@@ -119,7 +119,8 @@ class ConfigEntryNotReady(HomeAssistantError):
     pass
 
 
-_mod("homeassistant.exceptions", HomeAssistantError=HomeAssistantError, ConfigEntryNotReady=ConfigEntryNotReady)
+_mod("homeassistant.exceptions", HomeAssistantError=HomeAssistantError, ConfigEntryNotReady=ConfigEntryNotReady,
+     ServiceValidationError=type("ServiceValidationError", (HomeAssistantError,), {}))
 
 
 # ---------------------------------------------------------------- config entries
@@ -165,7 +166,8 @@ _mod("homeassistant.config_entries", ConfigEntry=ConfigEntry, ConfigEntryState=C
 
 # ---------------------------------------------------------------- helpers
 _mod("homeassistant.helpers")
-_mod("homeassistant.helpers.config_validation", config_entry_only_config_schema=lambda d: None)
+_mod("homeassistant.helpers.config_validation", config_entry_only_config_schema=lambda d: None,
+     string=str, boolean=bool, ensure_list=lambda v: v if isinstance(v, list) else [v])
 _mod("homeassistant.helpers.typing", ConfigType=dict)
 _mod("homeassistant.helpers.aiohttp_client", async_get_clientsession=lambda hass: None)
 _mod("homeassistant.loader", async_get_integration=None)
@@ -256,7 +258,14 @@ def async_track_time_interval(hass, cb, interval):
     return cancel
 
 
+def async_track_point_in_utc_time(hass, cb, when):
+    delay = max(0.0, (when - __import__("homeassistant.util.dt").util.dt.utcnow()).total_seconds())
+    h = hass.loop.call_later(delay, cb, when)
+    return h.cancel
+
+
 _mod("homeassistant.helpers.event", async_call_later=async_call_later,
+     async_track_point_in_utc_time=async_track_point_in_utc_time,
      async_track_state_change_event=async_track_state_change_event,
      async_track_time_interval=async_track_time_interval)
 
@@ -345,7 +354,7 @@ class DeviceInfo(dict):
         super().__init__(**kw)
 
 
-_mod("homeassistant.helpers.device_registry", DeviceInfo=DeviceInfo)
+_mod("homeassistant.helpers.device_registry", DeviceInfo=DeviceInfo, async_get=lambda hass: None)
 
 RESTORE: dict[str, Any] = {}  # unique_id → état précédent (pour simuler un redémarrage)
 
@@ -446,7 +455,21 @@ _mod("homeassistant.components.button", ButtonEntity=type("ButtonEntity", (Entit
 _mod("homeassistant.components.binary_sensor", BinarySensorEntity=type("BinarySensorEntity", (Entity,), {}),
      BinarySensorEntityDescription=EntityDescription, BinarySensorDeviceClass=_AnyEnum())
 _mod("homeassistant.util")
-_mod("homeassistant.util.dt", utcnow=lambda: __import__("datetime").datetime.now())
+def _utcnow():
+    """Temps réel, ou temps virtuel de la boucle de test quand elle tourne."""
+    import datetime as _dt
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None and isinstance(loop, VirtualClockLoop):
+        return _dt.datetime(2026, 1, 1, tzinfo=_dt.timezone.utc) + _dt.timedelta(seconds=loop.time())
+    return _dt.datetime.now(_dt.timezone.utc)
+
+
+_mod("homeassistant.util.dt", utcnow=_utcnow,
+     parse_datetime=lambda s: __import__("datetime").datetime.fromisoformat(s) if s else None,
+     as_utc=lambda d: d)
 
 
 # ---------------------------------------------------------------- hass simulé

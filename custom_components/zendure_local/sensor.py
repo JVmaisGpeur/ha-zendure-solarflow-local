@@ -26,11 +26,13 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 from . import ZendureConfigEntry
 from .const import BATTERY_REGULATION_STATES, GROUP_REGULATION_STATES, MODE_OFF, STATE_DEGRADED
 from .entity import ZendureEntity
+from .external import STATE_ACTIVE, STATE_INACTIVE
 
 PACK_STATES = {0: "standby", 1: "charging", 2: "discharging"}
 
@@ -254,6 +256,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     common: list[SensorEntity] = [ZendureTargetSensor(coordinator, d) for d in TARGET_SENSORS]
     common.append(ZendureRegulationStateSensor(coordinator))
+    common.append(ZendureExternalControlSensor(coordinator))
     common += [ZendureTuningSensor(coordinator, *d) for d in TUNING_SENSORS]
     if getattr(coordinator, "is_group", False):
         async_add_entities([*common, *(ZendureTargetSensor(coordinator, d) for d in GROUP_SENSORS)])
@@ -411,3 +414,51 @@ class ZendureRegulationStateSensor(ZendureEntity, SensorEntity):
         if self.is_group and reg.mode != MODE_OFF and self.coordinator.degraded:
             return STATE_DEGRADED
         return reg.state
+
+
+class ZendureExternalControlSensor(ZendureEntity, RestoreEntity, SensorEntity):
+    """Qui pilote cette batterie (ou ce groupe) de l'extérieur, et quels réglages.
+
+    Déclaré par le service `zendure_local.set_external_control` ; expire sans
+    renouvellement. Rétabli au redémarrage s'il n'a pas expiré entre-temps."""
+
+    _attr_translation_key = "external_control"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [STATE_ACTIVE, STATE_INACTIVE]
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "external_control")
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        external = self.coordinator.external
+        self.async_on_remove(external.add_listener(self._handle_coordinator_update))
+        last = await self.async_get_last_state()
+        if last is None or last.state != STATE_ACTIVE or external.active:
+            return
+        expires = dt_util.parse_datetime(str(last.attributes.get("expires_at") or ""))
+        if expires is not None and expires > dt_util.utcnow():
+            external.async_set(
+                True,
+                last.attributes.get("controller"),
+                list(last.attributes.get("controlled_keys") or []),
+                expires_at=dt_util.as_utc(expires),
+            )
+
+    @property
+    def native_value(self) -> str:
+        return self.coordinator.external.state
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        ext = self.coordinator.external
+        active = ext.active
+        return {
+            "controller": ext.controller if active else None,
+            "controlled_keys": list(ext.controlled_keys) if active else [],
+            "expires_at": ext.expires_at.isoformat() if active and ext.expires_at else None,
+        }

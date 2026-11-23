@@ -187,6 +187,28 @@ The **Max charge power** and **Max discharge power** sensors show the limit actu
 
 An unknown pack raises an alert: enter the capacity in the battery options. **Available energy** = capacity × (SOC − min SOC); **Missing energy** = capacity × (max SOC − SOC).
 
+### Declaring external control: `zendure_local.set_external_control`
+
+An external controller states that it controls the battery (or group), and which settings. The action **does not change how the battery works**: it only declares it, in the `external_control` sensor.
+
+| Field | Role |
+|---|---|
+| `device_id` | Battery or group concerned |
+| `active` | `true`: take over or renew; `false`: hand back |
+| `controller` | Controller name (`controller` attribute) |
+| `controlled_keys` | Keys of this table it controls, e.g. `["operating_mode", "import_limit", "charge_target_soc"]` |
+
+Without a new call with `active: true`, the declaration **expires after 30 minutes**: a stopped or removed controller never stays shown as active. It survives a Home Assistant restart as long as it has not expired.
+
+```yaml
+action: zendure_local.set_external_control
+data:
+  device_id: 0123456789abcdef
+  active: true
+  controller: Energy conductor
+  controlled_keys: [operating_mode, import_limit, charge_target_soc]
+```
+
 ## Lovelace card included
 
 The integration installs and loads its own card: **nothing to add to resources or HACS**.
@@ -206,7 +228,7 @@ show_history: true
 show_flow: true
 ```
 
-It shows the animated battery (or the global SOC of a group), the 24 h chart, capacity, energy flows, regulation state and controls: mode, strategy (group), Grid charge (import limit, target SOC), min / max charge levels, manual power. For a group, one row per battery (SOC, power, state).
+It shows the animated battery (or the global SOC of a group), the 24 h chart, capacity, energy flows, regulation state and controls: mode, strategy (group), Grid charge (import limit, target SOC), min / max charge levels, manual power. For a group, one row per battery: SOC, minimum and maximum charge levels (hatched zones on the bar), power, state.
 
 ## Regulation
 
@@ -240,6 +262,7 @@ A single battery and a group expose the same control entities (**interface versi
 | `battery_power` | sensor | W, + charge, − discharge | ✓ | ✓ |
 | `max_charge_power` / `max_discharge_power` | sensor | W | ✓ | ✓ |
 | `regulation_state` | sensor (enum) | `off`, `manual`, `regulating`, `grid_charging`, `target_reached`, `import_limited`, `soc_max_reached`, `soc_min_reached`, `sensor_unavailable`, `error` (+ `group` on a member, `degraded` on a group) | ✓ | ✓ |
+| `external_control` | sensor (enum) | `active`, `inactive` ; attributs `controller`, `controlled_keys` | ✓ | ✓ |
 | `strategy` | select | `simultaneous`, `soc_balance`, `priority` | — | ✓ |
 | `active_batteries` | sensor | count | — | ✓ |
 

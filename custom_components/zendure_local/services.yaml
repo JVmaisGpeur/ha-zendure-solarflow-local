@@ -1,0 +1,21 @@
+set_external_control:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: zendure_local
+    active:
+      required: true
+      example: true
+      selector:
+        boolean:
+    controller:
+      example: "Chef d'orchestre énergie"
+      selector:
+        text:
+    controlled_keys:
+      example: "operating_mode, import_limit, charge_target_soc"
+      selector:
+        text:
+          multiple: true

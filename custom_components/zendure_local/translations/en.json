@@ -342,6 +342,24 @@
           "degraded": "Degraded",
           "group": "Controlled by the group"
         }
+      },
+      "external_control": {
+        "name": "External control",
+        "state": {
+          "active": "Active",
+          "inactive": "Inactive"
+        },
+        "state_attributes": {
+          "controller": {
+            "name": "Controller"
+          },
+          "controlled_keys": {
+            "name": "Controlled settings"
+          },
+          "expires_at": {
+            "name": "Expires at"
+          }
+        }
       }
     },
     "number": {
@@ -445,6 +463,15 @@
     },
     "grid_sensor_required": {
       "message": "This mode needs a grid sensor: Settings → Devices & services → Zendure SolarFlow Local → Configure → “Grid sensor”."
+    },
+    "unknown_device": {
+      "message": "Device not found: {device}."
+    },
+    "device_not_loaded": {
+      "message": "Device {device} is not ready (integration not loaded)."
+    },
+    "not_zendure_device": {
+      "message": "Device {device} does not belong to Zendure SolarFlow Local."
     }
   },
   "issues": {
@@ -477,6 +504,30 @@
         "4600": "4,600 W (20 A breaker)",
         "5000": "5,000 W",
         "custom": "Other: I enter the values"
+      }
+    }
+  },
+  "services": {
+    "set_external_control": {
+      "name": "Declare external control",
+      "description": "States that another integration or automation controls this battery (or group), and which settings. Does not change how the battery works. Without a new call, the declaration expires after 30 minutes.",
+      "fields": {
+        "device_id": {
+          "name": "Battery or group",
+          "description": "Zendure SolarFlow Local device concerned."
+        },
+        "active": {
+          "name": "Active",
+          "description": "Yes: the controller takes over (or renews). No: it hands back."
+        },
+        "controller": {
+          "name": "Controller",
+          "description": "Controller name, shown in the card and the “controller” attribute."
+        },
+        "controlled_keys": {
+          "name": "Controlled settings",
+          "description": "Interface contract keys controlled, e.g. operating_mode, import_limit, charge_target_soc."
+        }
       }
     }
   }

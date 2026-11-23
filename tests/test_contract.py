@@ -10,6 +10,7 @@ BOTH = {
     "operating_mode": "select", "power_setpoint": "number", "import_limit": "number", "charge_target_soc": "number",
     "electric_level": "sensor", "usable_capacity": "sensor", "available_energy": "sensor", "missing_energy": "sensor",
     "battery_power": "sensor", "max_charge_power": "sensor", "max_discharge_power": "sensor", "regulation_state": "sensor",
+    "external_control": "sensor",
 }
 GROUP_ONLY = {"strategy": "select", "active_batteries": "sensor"}
 
@@ -49,6 +50,26 @@ async def scenario(loop):
     cap_g = w.entity(hass, g, "usable_capacity").native_value
     assert cap_ac == 8.64 and cap_acp == 12.0 and abs(cap_g - 20.64) < 1e-6, (cap_ac, cap_acp, cap_g)
     print(f"capacités : 2400 AC {cap_ac} kWh, 2400 AC+ {cap_acp} kWh, groupe {cap_g} kWh")
+    # Pilotage externe déclaré : renouvellement, expiration à 30 min, fin explicite
+    for entry in (g, entries["10.0.0.1"]):
+        ext = entry.runtime_data.external
+        sensor = w.entity(hass, entry, "external_control")
+        assert sensor.native_value == "inactive" and sensor.extra_state_attributes["controlled_keys"] == []
+        ext.async_set(True, "Chef d'orchestre énergie", ["mode", "import_limit"])
+        attrs = sensor.extra_state_attributes
+        assert sensor.native_value == "active" and attrs["controller"] == "Chef d'orchestre énergie"
+        assert attrs["controlled_keys"] == ["mode", "import_limit"], attrs
+        await asyncio.sleep(25 * 60)
+        assert sensor.native_value == "active"
+        ext.async_set(True, "Chef d'orchestre énergie", ["mode"])  # renouvellement
+        await asyncio.sleep(25 * 60)
+        assert sensor.native_value == "active", "le renouvellement doit relancer les 30 min"
+        await asyncio.sleep(6 * 60)
+        assert sensor.native_value == "inactive", "doit expirer 30 min après le dernier appel"
+        assert sensor.extra_state_attributes["controller"] is None
+        ext.async_set(True, "Test", ["mode"])
+        ext.async_set(False)
+        assert sensor.native_value == "inactive"
     print(f"batterie : {len(battery)} entités, groupe : {len(group)} entités")
     await asyncio.sleep(1)
 

@@ -187,6 +187,28 @@ La **capacité utile** est calculée d'après le type de chaque pack détecté :
 
 Un pack inconnu déclenche une alerte : saisis alors la capacité dans les options de la batterie. **Énergie disponible** = capacité × (SOC − SOC min) ; **Énergie manquante** = capacité × (SOC max − SOC).
 
+### Déclarer un pilotage externe : `zendure_local.set_external_control`
+
+Un pilote externe indique qu'il commande la batterie (ou le groupe), et quels réglages. Le service **ne change rien au fonctionnement de la batterie** : il ne fait que le déclarer, dans le capteur `external_control`.
+
+| Champ | Rôle |
+|---|---|
+| `device_id` | Batterie ou groupe concerné |
+| `active` | `true` : prise de main ou renouvellement ; `false` : fin |
+| `controller` | Nom du pilote (attribut `controller`) |
+| `controlled_keys` | Clés de ce tableau qu'il commande, par exemple `["operating_mode", "import_limit", "charge_target_soc"]` |
+
+Sans nouvel appel avec `active: true`, la déclaration **expire après 30 minutes** : un pilote arrêté ou désinstallé ne reste jamais affiché comme actif. Elle est conservée au redémarrage de Home Assistant tant qu'elle n'a pas expiré.
+
+```yaml
+action: zendure_local.set_external_control
+data:
+  device_id: 0123456789abcdef
+  active: true
+  controller: Chef d'orchestre énergie
+  controlled_keys: [operating_mode, import_limit, charge_target_soc]
+```
+
 ## Carte Lovelace incluse
 
 L'intégration installe et charge sa propre carte : **rien à ajouter dans les ressources ni dans HACS**.
@@ -206,7 +228,7 @@ show_history: true
 show_flow: true
 ```
 
-Elle affiche la batterie animée (ou le SOC global d'un groupe), la courbe 24 h, la capacité, les flux d'énergie, l'état de la régulation et le pilotage : mode, stratégie (groupe), Charge réseau (limite de soutirage, SOC cible), niveaux de charge min / max, puissance manuelle. Pour un groupe, une ligne par batterie (SOC, puissance, état).
+Elle affiche la batterie animée (ou le SOC global d'un groupe), la courbe 24 h, la capacité, les flux d'énergie, l'état de la régulation et le pilotage : mode, stratégie (groupe), Charge réseau (limite de soutirage, SOC cible), niveaux de charge min / max, puissance manuelle. Pour un groupe, une ligne par batterie : SOC, niveaux de charge minimum et maximum (zones hachurées sur la barre), puissance, état.
 
 ## Régulation
 
@@ -240,6 +262,7 @@ Une batterie seule et un groupe exposent les mêmes entités de pilotage (**vers
 | `battery_power` | sensor | W, + charge, − décharge | ✓ | ✓ |
 | `max_charge_power` / `max_discharge_power` | sensor | W | ✓ | ✓ |
 | `regulation_state` | sensor (enum) | `off`, `manual`, `regulating`, `grid_charging`, `target_reached`, `import_limited`, `soc_max_reached`, `soc_min_reached`, `sensor_unavailable`, `error` (+ `group` sur un membre, `degraded` sur un groupe) | ✓ | ✓ |
+| `external_control` | sensor (enum) | `active`, `inactive` ; attributs `controller`, `controlled_keys` | ✓ | ✓ |
 | `strategy` | select | `simultaneous`, `soc_balance`, `priority` | — | ✓ |
 | `active_batteries` | sensor | nombre | — | ✓ |
 

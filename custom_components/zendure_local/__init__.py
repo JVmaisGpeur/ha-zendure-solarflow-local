@@ -36,8 +36,10 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import ZendureCoordinator
+from .external import ExternalControl
 from .group import ZendureGroupHub, group_members, member_coordinator
 from .regulator import ZendureRegulator
+from .services import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,6 +63,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     )
     # ?v=… force le navigateur à recharger la carte après une mise à jour
     add_extra_js_url(hass, f"{CARD_URL}?v={integration.version}")
+    async_register_services(hass)
     return True
 
 
@@ -71,6 +74,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZendureConfigEntry) -> b
     coordinator = ZendureCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
     _check_pack_types(hass, entry, coordinator)
+    coordinator.external = ExternalControl(hass)
+    entry.async_on_unload(coordinator.external.shutdown)
     coordinator.regulator = ZendureRegulator(hass, coordinator)
     await coordinator.regulator.async_load()
     entry.async_on_unload(coordinator.regulator.shutdown)
@@ -99,6 +104,8 @@ def _check_pack_types(hass: HomeAssistant, entry: ConfigEntry, coordinator: Zend
 
 async def _async_setup_group(hass: HomeAssistant, entry: ZendureConfigEntry) -> bool:
     hub = ZendureGroupHub(hass, entry)
+    hub.external = ExternalControl(hass)
+    entry.async_on_unload(hub.external.shutdown)
     hub.regulator = ZendureRegulator(hass, hub)
     await hub.regulator.async_load()
     entry.runtime_data = hub

@@ -342,6 +342,24 @@
           "degraded": "Dégradé",
           "group": "Pilotée par le groupe"
         }
+      },
+      "external_control": {
+        "name": "Pilotage externe",
+        "state": {
+          "active": "Actif",
+          "inactive": "Inactif"
+        },
+        "state_attributes": {
+          "controller": {
+            "name": "Pilote"
+          },
+          "controlled_keys": {
+            "name": "Réglages pilotés"
+          },
+          "expires_at": {
+            "name": "Expire à"
+          }
+        }
       }
     },
     "number": {
@@ -445,6 +463,15 @@
     },
     "grid_sensor_required": {
       "message": "Ce mode a besoin d'un capteur réseau : Paramètres → Appareils et services → Zendure SolarFlow Local → Configurer → « Capteur réseau »."
+    },
+    "unknown_device": {
+      "message": "Appareil introuvable : {device}."
+    },
+    "device_not_loaded": {
+      "message": "L'appareil {device} n'est pas prêt (intégration non chargée)."
+    },
+    "not_zendure_device": {
+      "message": "L'appareil {device} n'appartient pas à Zendure SolarFlow Local."
     }
   },
   "issues": {
@@ -477,6 +504,30 @@
         "4600": "4 600 W (disjoncteur 20 A)",
         "5000": "5 000 W",
         "custom": "Autre : je saisis les valeurs"
+      }
+    }
+  },
+  "services": {
+    "set_external_control": {
+      "name": "Déclarer un pilotage externe",
+      "description": "Indique qu'une autre intégration ou automatisation pilote cette batterie (ou ce groupe), et quels réglages. Ne change rien au fonctionnement de la batterie. Sans nouvel appel, la déclaration expire après 30 minutes.",
+      "fields": {
+        "device_id": {
+          "name": "Batterie ou groupe",
+          "description": "Appareil Zendure SolarFlow Local concerné."
+        },
+        "active": {
+          "name": "Actif",
+          "description": "Oui : le pilote prend la main (ou renouvelle). Non : il la rend."
+        },
+        "controller": {
+          "name": "Pilote",
+          "description": "Nom du pilote, affiché dans la carte et l'attribut « controller »."
+        },
+        "controlled_keys": {
+          "name": "Réglages pilotés",
+          "description": "Clés du contrat d'interface commandées par le pilote, par exemple operating_mode, import_limit, charge_target_soc."
+        }
       }
     }
   }

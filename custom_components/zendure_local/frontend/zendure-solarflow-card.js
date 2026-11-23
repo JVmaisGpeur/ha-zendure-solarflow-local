@@ -12,7 +12,7 @@
  *   show_history: true    # courbe des dernières 24 h
  *   show_flow: true       # schéma des flux d'énergie
  */
-const CARD_VERSION = "1.4.0";
+const CARD_VERSION = "1.5.0";
 const DOMAIN = "zendure_local";
 
 const I18N = {
@@ -731,14 +731,18 @@ class ZendureSolarflowCard extends HTMLElement {
       const st = (k) => (ents[k] ? this._hass.states[ents[k]] : undefined);
       const soc = num(st("electric_level")?.state);
       const p = num(st("battery_power")?.state);
+      const lo = num(st("min_soc")?.state);
+      const hi = num(st("soc_set")?.state);
+      const range = lo === null && hi === null ? "" :
+        ` · ${t.socMin} ${lo === null ? "—" : Math.round(lo) + " %"} · ${t.socMax} ${hi === null ? "—" : Math.round(hi) + " %"}`;
       const state = b.active ? this._fmt(st("regulation_state")) : t.unavailable;
       const cls = !b.active ? "off" : p > 5 ? "charging" : p < -5 ? "discharging" : "";
       return `<div class="mrow2 ${cls}" data-e="${ents.electric_level || ""}">
         <div class="mname">${prettyModel(b.name) || b.name}</div>
-        <div class="mbar"><i style="width:${soc ?? 0}%"></i></div>
+        <div class="mbar"><i style="width:${soc ?? 0}%"></i>${lo ? `<b class="lim" style="left:0;width:${lo}%"></b>` : ""}${hi !== null && hi < 100 ? `<b class="lim" style="left:${hi}%;right:0"></b>` : ""}</div>
         <div class="msoc">${soc === null ? "—" : Math.round(soc) + " %"}</div>
         <div class="mpow">${p === null ? "—" : (p > 5 ? "↓ " : p < -5 ? "↑ " : "") + fmtW(p)}</div>
-        <div class="mstate">${state}</div></div>`;
+        <div class="mstate">${state}${range}</div></div>`;
     });
     const html = `<div class="mhead"><span>${t.batteries}</span><b>${t.activeBatteries} : ${this._val("active_batteries") ?? "—"} / ${list.length}</b></div>${rows.join("")}`;
     if (html !== this._membersHtml) {
@@ -981,7 +985,8 @@ const STYLE = `
   .mrow2 { display: grid; grid-template-columns: minmax(0, 1.6fr) 1fr auto auto; grid-template-rows: auto auto; gap: 2px 10px;
            align-items: center; padding: 10px 12px; border-radius: 14px; background: var(--z-panel); cursor: pointer; }
   .mrow2 .mname { font-weight: 600; font-size: .88em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .mrow2 .mbar { height: 6px; border-radius: 3px; background: rgba(127,127,127,.25); overflow: hidden; }
+  .mrow2 .mbar { position: relative; height: 6px; border-radius: 3px; background: rgba(127,127,127,.25); overflow: hidden; }
+  .mrow2 .mbar .lim { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, rgba(127,127,127,.55) 0 2px, transparent 2px 4px); }
   .mrow2 .mbar i { display: block; height: 100%; background: var(--z-green); border-radius: 3px; }
   .mrow2 .msoc { font-weight: 700; font-size: .88em; text-align: right; }
   .mrow2 .mpow { font-size: .82em; text-align: right; min-width: 64px; }
