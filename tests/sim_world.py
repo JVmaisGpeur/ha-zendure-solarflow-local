@@ -27,6 +27,8 @@ class FakeBattery:
         self.props = {"acMode": 1, "inputLimit": 0, "outputLimit": 0, "smartMode": 0}
         self.pending: list[tuple[float, dict]] = []
         self.online = True
+        self.write_latency = 0.05
+        self.drop_writes = 0
         self.fault = 0
         self.commands: list[tuple[float, float]] = []  # (instant, consigne)
 
@@ -81,10 +83,15 @@ def make_api_factory(batteries: dict[str, FakeBattery], api_module):
             return self.bat.report()
 
         async def async_write(self, sn, properties):
-            await asyncio.sleep(0.05)
+            # Latence réseau différente d'une batterie à l'autre (comme en vrai)
+            await asyncio.sleep(self.bat.write_latency)
             if not self.bat.online:
                 raise api_module.ZendureError("hors ligne")
             b = self.bat
+            if b.drop_writes > 0:  # commande acceptée mais perdue par la batterie
+                b.drop_writes -= 1
+                b.commands.append((b.loop.time(), None))
+                return
             b.pending.append((b.loop.time() + b.dead, dict(properties)))
             tgt = properties.get("outputLimit", 0) if properties.get("acMode") == 2 else -properties.get("inputLimit", 0)
             b.commands.append((b.loop.time(), tgt))
@@ -95,8 +102,9 @@ def make_api_factory(batteries: dict[str, FakeBattery], api_module):
 class World:
     """Maison : consommation de base + évènements ; compteur publié chaque seconde."""
 
-    def __init__(self, loop, hass, batteries, seed=1, noise=15.0):
+    def __init__(self, loop, hass, batteries, seed=1, noise=15.0, meter_period=1.0):
         self.loop, self.hass, self.batteries = loop, hass, batteries
+        self.meter_period = meter_period
         self.rnd = random.Random(seed)
         self.noise = noise
         self.load = 400.0
@@ -113,7 +121,7 @@ class World:
             for b in self.batteries.values():
                 b.step(0.1)
             t = self.loop.time()
-            if t - last_meter >= 1.0:
+            if t - last_meter >= self.meter_period - 1e-6:
                 g = self.grid() + self.rnd.gauss(0, self.noise)
                 self.hass.set_state(GRID, round(g))
                 self.log.append((t, g, {k: (round(b.ac), round(b.soc, 1)) for k, b in self.batteries.items()}))

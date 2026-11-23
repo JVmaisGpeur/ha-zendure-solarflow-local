@@ -22,7 +22,7 @@ from typing import Any
 
 # Bornes des paramètres appris
 GAIN_MIN, GAIN_MAX = 0.5, 1.0
-DEADBAND_MIN, DEADBAND_MAX = 15.0, 150.0
+DEADBAND_MIN, DEADBAND_MAX = 15.0, 80.0
 GAP_MIN, GAP_MAX = 0.5, 10.0
 SETTLE_MIN, SETTLE_MAX = 3.0, 20.0
 
@@ -101,10 +101,16 @@ class AutoTuner:
         return _clamp(self.state.gain, GAIN_MIN, GAIN_MAX) if self.ready else self.default_gain
 
     @property
+    def trim_delay(self) -> float:
+        """Calme demandé avant d'affiner dans la zone morte : deux mesures du compteur."""
+        period = self.state.meter_period or 1.0
+        return _clamp(2 * period + 2, 6.0, 12.0)
+
+    @property
     def deadband(self) -> float:
         if self.state.noise is None:
             return self.default_deadband
-        return _clamp(2.5 * self.state.noise, DEADBAND_MIN, DEADBAND_MAX)
+        return _clamp(2.0 * self.state.noise, DEADBAND_MIN, DEADBAND_MAX)
 
     @property
     def min_gap(self) -> float:
@@ -151,7 +157,11 @@ class AutoTuner:
                 diffs = [b - a for a, b in pairwise(self._samples)]
                 diffs = [d for d in diffs if abs(d) < 300]  # un vrai changement de conso n'est pas du bruit
                 if len(self._samples) >= NOISE_WINDOW and len(diffs) >= NOISE_WINDOW // 2:
-                    sd = statistics.pstdev(diffs) / 1.414  # écart-type d'une différence = √2 × bruit
+                    # Estimateur robuste (écart absolu médian) : les vrais changements de
+                    # consommation de la maison ne gonflent plus le « bruit » ni la zone morte.
+                    med = statistics.median(diffs)
+                    mad = statistics.median(abs(d - med) for d in diffs)
+                    sd = 1.4826 * mad / 1.414  # écart-type d'une différence = √2 × bruit
                     self.state.noise = _ema(self.state.noise, sd, 0.1)
                     self._dirty = True
                     self._samples.clear()

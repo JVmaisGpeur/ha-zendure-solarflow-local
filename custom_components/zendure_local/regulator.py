@@ -140,6 +140,10 @@ class ZendureRegulator:
         return self.tuner.deadband if self.auto else self._deadband
 
     @property
+    def trim_delay(self) -> float:
+        return self.tuner.trim_delay if self.auto else TRIM_DELAY
+
+    @property
     def min_gap(self) -> float:
         return self.tuner.min_gap if self.auto else self._min_gap
 
@@ -377,7 +381,7 @@ class ZendureRegulator:
                 # Dans la zone morte : on suit la moyenne de l'écart. Le bruit se compense,
                 # un écart réel (ex. 16 W soutirés en permanence) reste et sera corrigé.
                 self._err_avg = error if self._err_avg is None else self._err_avg + TRIM_ALPHA * (error - self._err_avg)
-                if abs(self._err_avg) < TRIM_MIN or time.monotonic() - self._last_cmd < TRIM_DELAY:
+                if abs(self._err_avg) < TRIM_MIN or time.monotonic() - self._last_cmd < self.trim_delay:
                     await self._finish(sp, sp, charge_target, stable=True)
                     return
                 step = round(self._err_avg / 10) * 10 or (10 if self._err_avg > 0 else -10)

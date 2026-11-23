@@ -10,6 +10,14 @@
   - nouveau capteur `external_control` (`active` / `inactive`) avec les attributs `controller` et `controlled_keys`, sur chaque batterie et chaque groupe ;
   - l'action ne change rien au fonctionnement de la batterie.
 
+### Corrections
+- **Groupe : consignes contradictoires** (injection ou soutirage pendant 20 à 30 s). Quand une batterie répondait plus vite que l'autre, le contrôle de répartition du groupe voyait encore l'ancienne consigne totale et renvoyait aussitôt l'ancienne part. Exemple : 950 W demandés, puis 1 020 W renvoyés 40 ms plus tard. Les batteries restaient donc sur l'ancienne valeur. La nouvelle consigne est maintenant connue avant l'envoi, et aucune nouvelle répartition n'est faite pendant une commande en cours.
+- **Commande perdue** : si une batterie relue au moins 4 s après l'envoi n'a pas la consigne demandée, la commande est renvoyée, au plus 3 fois de suite.
+- **Zone morte trop large avec un compteur lent** : le bruit du compteur est maintenant estimé de façon robuste (écart absolu médian), sans compter les vrais changements de consommation de la maison. La zone morte vaut 2 × bruit, plafonnée à 80 W (au lieu de 2,5 × bruit, plafonnée à 150 W). Les petits écarts sont aussi affinés plus vite avec un compteur lent : délai de 2 mesures + 2 s, entre 6 et 12 s.
+
+### À faire après la mise à jour
+- Sur le groupe, appuyer sur **Réinitialiser l'apprentissage** : l'ancien bruit mesuré, trop élevé, serait sinon oublié lentement.
+
 ## v1.4.0
 
 ### Installation simplifiée

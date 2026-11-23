@@ -74,6 +74,7 @@ class ZendureGroupHub:
         self.hass = hass
         self.config_entry = entry
         self.power_setpoint: float = 0
+        self._setting = 0  # commandes de répartition en cours
         self.regulator = None
         self.strategy: str = DEFAULT_STRATEGY
         self._listeners: list[Callable[[], None]] = []
@@ -321,24 +322,32 @@ class ZendureGroupHub:
         """Répartit la consigne totale entre les batteries actives (G6, G7, G9, G12)."""
         parts = self.parts_for(watts)
         coords = self.active()
-        tasks = []
-        for eid, c in coords.items():
-            part = parts.get(eid, 0.0)
-            if int(part) != int(c.power_setpoint):
-                tasks.append(c.async_set_power(part))
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for res in results:
-                if isinstance(res, Exception):
-                    _LOGGER.warning("Groupe %s : commande refusée par une batterie : %s", self.name, res)
+        # La nouvelle consigne est connue AVANT d'écrire : une batterie qui répond plus vite
+        # que l'autre déclenche une mise à jour, et le contrôle de répartition ne doit pas
+        # alors renvoyer l'ancienne répartition (bug 1.4 : consignes contradictoires).
         self.power_setpoint = float(sum(parts.values()))
         self._last_redispatch = time.monotonic()
+        self._setting += 1
+        try:
+            tasks = []
+            for eid, c in coords.items():
+                part = parts.get(eid, 0.0)
+                if int(part) != int(c.power_setpoint):
+                    tasks.append(c.async_set_power(part))
+            if tasks:
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for res in results:
+                    if isinstance(res, Exception):
+                        _LOGGER.warning("Groupe %s : commande refusée par une batterie : %s", self.name, res)
+        finally:
+            self._setting -= 1
+            self._last_redispatch = time.monotonic()
         self.async_update_listeners()
 
     @callback
     def _maybe_redispatch(self) -> None:
         """Un membre a changé (SOC limite, retour, panne) : on recalcule les parts au besoin."""
-        if self._redispatch_lock.locked() or time.monotonic() - self._last_redispatch < 2:
+        if self._setting or self._redispatch_lock.locked() or time.monotonic() - self._last_redispatch < 2:
             return
         reg = self.regulator
         if reg is None or reg.mode == "off" or reg.testing:

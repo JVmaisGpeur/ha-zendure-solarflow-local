@@ -43,6 +43,10 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+APPLY_CHECK_DELAY = 4.0  # s après l'envoi avant de vérifier la relecture
+APPLY_TOLERANCE = 20.0  # W
+APPLY_RETRIES = 3
+
 
 def _num(value: Any) -> float | None:
     try:
@@ -73,6 +77,10 @@ class ZendureCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.sn: str = entry.unique_id or ""
         # Dernière consigne envoyée (+ décharge, − charge)
         self.power_setpoint: float = 0
+        self._set_t: float | None = None  # dernier envoi de consigne
+        self._apply_retries = 0
+        self._resending = False
+        self.lost_commands = 0  # consignes absentes à la relecture (diagnostic)
         self.regulator = None  # ZendureRegulator, créé dans __init__.py
         self.last_read: float = 0.0  # instant (monotonic) de la dernière lecture réussie
         # Hystérésis du SOC cible de charge : vrai = cible atteinte, on attend cible − 3 points
@@ -285,7 +293,52 @@ class ZendureCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.sn and data.get("sn"):
             self.sn = data["sn"]
         self.last_read = time.monotonic()
+        self._check_applied(data.get("properties") or {})
         return data
+
+    # ------------------------------------------------------------ consigne bien appliquée ?
+    def applied_setpoint(self, props: dict[str, Any] | None = None) -> float | None:
+        """Consigne réellement en place dans la batterie (relue), même signe que power_setpoint."""
+        p = self.props if props is None else props
+        mode = p.get("acMode")
+        if mode == AC_MODE_DISCHARGE:
+            return float(_num(p.get("outputLimit")) or 0)
+        if mode == AC_MODE_CHARGE:
+            return -float(_num(p.get("inputLimit")) or 0)
+        return None
+
+    def _check_applied(self, props: dict[str, Any]) -> None:
+        """Une consigne envoyée mais absente à la relecture (commande perdue) est renvoyée.
+
+        Au plus APPLY_RETRIES fois de suite pour une même consigne, espacées d'au moins
+        APPLY_CHECK_DELAY : une batterie qui borne elle-même la valeur n'est pas harcelée."""
+        if self._set_t is None or self._resending or self._apply_retries >= APPLY_RETRIES:
+            return
+        now = time.monotonic()
+        if now - self._set_t < APPLY_CHECK_DELAY:
+            return
+        applied = self.applied_setpoint(props)
+        wanted = self.power_setpoint
+        if applied is None or abs(applied - wanted) <= APPLY_TOLERANCE:
+            self._apply_retries = 0
+            return
+        self._apply_retries += 1
+        self.lost_commands += 1
+        _LOGGER.info(
+            "%s : consigne %s W absente à la relecture (%s W en place), nouvel envoi (%s/%s)",
+            self.config_entry.title, wanted, applied, self._apply_retries, APPLY_RETRIES,
+        )
+        self._resending = True
+        self.hass.async_create_task(self._async_resend(wanted))
+
+    async def _async_resend(self, wanted: float) -> None:
+        try:
+            if wanted == self.power_setpoint:
+                await self.async_set_power(wanted, retry=True)
+        except HomeAssistantError as err:
+            _LOGGER.debug("Nouvel envoi impossible : %s", err)
+        finally:
+            self._resending = False
 
     def async_update_listeners(self) -> None:
         super().async_update_listeners()
@@ -316,7 +369,7 @@ class ZendureCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.async_update_listeners()
         await self.async_request_refresh()
 
-    async def async_set_power(self, watts: float) -> None:
+    async def async_set_power(self, watts: float, *, retry: bool = False) -> None:
         """Consigne unique : >0 décharge vers la maison, <0 charge, 0 = repos.
 
         Toujours bornée par les limites de la batterie (Z5), circuit compris (Z8).
@@ -332,6 +385,10 @@ class ZendureCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             props = {"acMode": AC_MODE_CHARGE, "inputLimit": -watts, "outputLimit": 0}
         else:
             props = {"inputLimit": 0, "outputLimit": 0}
+        if not retry:
+            self._apply_retries = 0
+        self.power_setpoint = watts  # connue avant l'écriture (lectures intermédiaires)
+        self._set_t = time.monotonic()  # la relecture faite juste après ne compte pas
         await self.async_write(props, volatile=True)
-        self.power_setpoint = watts
+        self._set_t = time.monotonic()
         self.async_update_listeners()

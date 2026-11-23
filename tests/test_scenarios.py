@@ -167,6 +167,60 @@ async def s_group_30min(loop, strategy="soc_balance"):
     return hass, bats, entries, g, world
 
 
+def reversals(bat: w.FakeBattery, window: float = 1.0) -> int:
+    """Consignes contradictoires : A → B → A en moins de `window` secondes."""
+    c = bat.commands
+    return sum(
+        1 for (t0, a), (_t1, b), (t2, a2) in zip(c, c[1:], c[2:], strict=False)
+        if a2 == a and b != a and t2 - t0 < window
+    )
+
+
+async def s_group_slow_meter_no_reversal(loop):
+    """Compteur lent (5 s) et bruité : une injection de 300 W est corrigée, sans consignes
+    contradictoires (bug 1.4 : redispatch du groupe pendant une commande en cours)."""
+    stubs.ISSUES.clear()
+    hass, integ, bats, entries, g = await w.setup(loop, SPECS, group={"hosts": [AC, ACP], "options": {}})
+    bats[AC].write_latency, bats[ACP].write_latency = 0.02, 0.4  # réponses à des vitesses différentes
+    await select(hass, g, "strategy", "simultaneous")
+    world = w.World(loop, hass, bats, seed=5, noise=40, meter_period=5.0)
+    world.load = 2040
+    world.start()
+    # Commande directe : la batterie rapide ne doit pas recevoir l'ancienne part juste après
+    await select(hass, g, "operating_mode", "manual")
+    hub = g.runtime_data
+    await hub.async_set_power(2040)
+    await asyncio.sleep(10)
+    t_cmd = loop.time()
+    await hub.async_set_power(1900)
+    await asyncio.sleep(5)
+    for b in bats.values():
+        sent = [v for t, v in b.commands if t >= t_cmd]
+        assert sent == [950], f"consignes envoyées après 1900 W : {sent}"
+    await select(hass, g, "operating_mode", "smart")
+    await asyncio.sleep(180)
+    t0 = loop.time()
+    world.load = 1740  # la maison consomme 300 W de moins : injection
+    await asyncio.sleep(90)
+    rev = sum(reversals(b) for b in bats.values())
+    assert rev == 0, f"{rev} consignes contradictoires"
+    back = next((x[0] for x in world.log if x[0] > t0 and x[1] > -100), None)
+    assert back is not None and back - t0 <= 20, f"injection corrigée en {None if back is None else back - t0:.0f} s"
+    late = [x[1] for x in world.log if x[0] > t0 + 40]
+    assert abs(statistics.mean(late)) < 50, f"écart moyen {statistics.mean(late):.0f} W"
+    # Commande perdue par la batterie : relue, constatée absente, renvoyée
+    await select(hass, g, "operating_mode", "manual")
+    bats[AC].drop_writes = 1
+    t_cmd = loop.time()
+    await hub.async_set_power(1600)
+    await asyncio.sleep(20)
+    assert bats[AC].props["outputLimit"] == 800, bats[AC].props
+    resend = next(t for t, v in bats[AC].commands if t > t_cmd and v == 800) - t_cmd
+    ok(f"Commande perdue par une batterie : renvoyée après {resend:.0f} s, consigne en place")
+    ok(f"Compteur lent (5 s, bruit 40 W) : injection de 300 W corrigée en {back - t0:.0f} s, "
+       f"aucune consigne contradictoire, écart moyen ensuite {statistics.mean(late):.0f} W")
+
+
 async def s_group_soc_balance_converges(loop):
     hass, bats, entries, g, world = await s_group_30min(loop, "soc_balance")
     # Équilibrage : une heure de décharge continue à 1500 W
@@ -329,7 +383,7 @@ async def s_single_battery_unchanged(loop):
 SCENARIOS = [
     s_single_battery_unchanged, s_grid_charge_target_and_import, s_restart_persistence, s_circuit_limit,
     s_group_soc_balance_converges, s_simultaneous, s_priority_switchover, s_degraded,
-    s_member_settings_and_leave, s_leave_and_delete,
+    s_member_settings_and_leave, s_leave_and_delete, s_group_slow_meter_no_reversal,
 ]
 
 if __name__ == "__main__":
