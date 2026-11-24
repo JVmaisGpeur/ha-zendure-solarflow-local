@@ -9,6 +9,7 @@ from ha_stubs import ConfigEntry, FakeHass, VirtualClockLoop, load_integration  
 
 DOMAIN = "zendure_local"
 GRID = "sensor.compteur_reseau"
+SOLAR = "sensor.production_solaire"
 
 
 class FakeBattery:
@@ -29,6 +30,7 @@ class FakeBattery:
         self.online = True
         self.write_latency = 0.05
         self.drop_writes = 0
+        self.soc_status = 0  # 1 = calibration du SOC en cours
         self.fault = 0
         self.commands: list[tuple[float, float]] = []  # (instant, consigne)
 
@@ -63,6 +65,7 @@ class FakeBattery:
                 "inverseMaxPower": self.discharge_max, "chargeAvailPower": 0, "dischargeAvailPower": 0,
                 "derateFlag": 0, "is_error": self.fault, "hyperTmp": 3031, "packNum": len(self.packs),
                 "remainOutTime": 59940, "packState": 0,
+                "socStatus": self.soc_status, "batCalTime": 43200,
             },
             "packData": [{"sn": f"P{i}", "packType": t, "socLevel": int(self.soc), "maxTemp": 2971,
                           "totalVol": 5080, "batcur": 0, "maxVol": 340, "minVol": 334} for i, t in enumerate(self.packs)],
@@ -109,11 +112,12 @@ class World:
         self.noise = noise
         self.load = 400.0
         self.extra = 0.0  # gros appareil, surplus solaire (négatif)…
+        self.solar = 0.0  # production des panneaux, publiée sur SOLAR
         self.log: list[tuple[float, float, dict]] = []
         self._task = None
 
     def grid(self) -> float:
-        return self.load + self.extra - sum(b.ac for b in self.batteries.values())
+        return self.load + self.extra - self.solar - sum(b.ac for b in self.batteries.values())
 
     async def run(self):
         last_meter = 0.0
@@ -124,6 +128,7 @@ class World:
             if t - last_meter >= self.meter_period - 1e-6:
                 g = self.grid() + self.rnd.gauss(0, self.noise)
                 self.hass.set_state(GRID, round(g))
+                self.hass.set_state(SOLAR, round(self.solar))
                 self.log.append((t, g, {k: (round(b.ac), round(b.soc, 1)) for k, b in self.batteries.items()}))
                 last_meter = t
             await asyncio.sleep(0.1)

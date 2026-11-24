@@ -1,6 +1,6 @@
 """Pilotage externe déclaré : qui pilote cette batterie (ou ce groupe), et quels réglages.
 
-Un pilote externe (par exemple le Chef d'orchestre énergie) appelle le service
+Un pilote externe (intégration, automatisation…) appelle le service
 `zendure_local.set_external_control`. La déclaration expire sans renouvellement
 (30 min) : un pilote planté ou désinstallé ne bloque jamais l'affichage.
 Ce module ne change rien au fonctionnement de la batterie ; il ne fait que déclarer.

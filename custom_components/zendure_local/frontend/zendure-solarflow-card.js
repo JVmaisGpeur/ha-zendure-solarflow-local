@@ -12,7 +12,7 @@
  *   show_history: true    # courbe des dernières 24 h
  *   show_flow: true       # schéma des flux d'énergie
  */
-const CARD_VERSION = "1.5.0";
+const CARD_VERSION = "1.6.0";
 const DOMAIN = "zendure_local";
 
 const I18N = {
@@ -34,6 +34,11 @@ const I18N = {
     ed: { device_id: "Batterie ou groupe de batteries", name: "Titre", capacity: "Capacité (kWh, vide = automatique)",
           solar_entity: "Capteur de production solaire (facultatif)", consumers: "Appareils à afficher dans les flux (5 max)",
           show_history: "Afficher la courbe 24 h", show_flow: "Afficher les flux d'énergie" },
+    chargeCapped: "Charge plafonnée à {w}", dischargeCapped: "Décharge plafonnée à {w}", dischargeBlocked: "Décharge bloquée",
+    loadExcluded: "{w} non couverts par la batterie", byPilot: " · par {p}",
+    capCharge: "Plafond de charge", capDischarge: "Plafond de décharge", excluded: "Non couvert",
+    calibrating: "Calibration en cours", calibratingIn: "Calibration en cours : {b}",
+    calibHelp: "La batterie recalibre son niveau de charge, en général après environ 30 jours sans charge à 100 %. Pour qu'elle aboutisse : laisser l'appareil sous tension, la limite de charge à 100 %, et ne pas bloquer la puissance à 0 W. Elle se termine d'elle-même.",
     modes: { off: "Arrêt", manual: "Puissance manuelle", smart: "Couplage intelligent",
              smart_discharge: "Décharge intelligente", smart_charge: "Charge intelligente", solar: "Stocker le solaire", grid_charge: "Charge réseau",
              group: "Pilotée par le groupe" },
@@ -56,6 +61,11 @@ const I18N = {
     ed: { device_id: "Battery or battery group", name: "Title", capacity: "Capacity (kWh, empty = auto)",
           solar_entity: "Solar production sensor (optional)", consumers: "Devices shown in the flow (max 5)",
           show_history: "Show 24 h chart", show_flow: "Show energy flow" },
+    chargeCapped: "Charging capped at {w}", dischargeCapped: "Discharging capped at {w}", dischargeBlocked: "Discharging blocked",
+    loadExcluded: "{w} not covered by the battery", byPilot: " · by {p}",
+    capCharge: "Charge cap", capDischarge: "Discharge cap", excluded: "Not covered",
+    calibrating: "Calibrating", calibratingIn: "Calibrating: {b}",
+    calibHelp: "The battery is recalibrating its charge level, usually after about 30 days without a 100 % charge. For it to complete: keep the device powered, the charge limit at 100 %, and do not lock the power at 0 W. It ends on its own.",
     modes: { off: "Off", manual: "Manual power", smart: "Smart matching",
              smart_discharge: "Smart discharge", smart_charge: "Smart charge", solar: "Store solar", grid_charge: "Grid charge",
              group: "Controlled by the group" },
@@ -176,6 +186,60 @@ class ZendureSolarflowCard extends HTMLElement {
     const v = this._watts(sel?.attributes?.capteur_reseau);
     return v === null ? null : sel.attributes.inverser_signe ? -v : v;
   }
+  // Pilote externe qui commande une clé donnée (attribut controller du capteur external_control)
+  _pilotFor(key) {
+    const ext = this._state("external_control");
+    if (!ext || ext.state !== "active") return null;
+    const keys = ext.attributes?.controlled_keys || [];
+    return keys.includes(key) ? ext.attributes?.controller || null : null;
+  }
+  // État de la régulation, détaillé quand un plafond limite la consigne
+  _regText(st) {
+    const t = this._t;
+    if (!st) return "—";
+    const by = (key) => { const p = this._pilotFor(key); return p ? t.byPilot.replace("{p}", p) : ""; };
+    const w = (key) => fmtW(this._val(key));
+    if (st.state === "charge_capped") return t.chargeCapped.replace("{w}", w("charge_power_limit")) + by("charge_power_limit");
+    if (st.state === "discharge_capped") {
+      const v = this._val("discharge_power_limit");
+      return (v === 0 ? t.dischargeBlocked : t.dischargeCapped.replace("{w}", w("discharge_power_limit"))) + by("discharge_power_limit");
+    }
+    if (st.state === "load_excluded") return t.loadExcluded.replace("{w}", w("excluded_power")) + by("excluded_power");
+    return this._fmt(st);
+  }
+  // Plafonds et puissance non couverte : affichés seulement quand ils ont un effet
+  _renderCaps() {
+    const t = this._t, box = this._$("caps");
+    const chips = [];
+    const add = (key, label, active) => {
+      const st = this._state(key);
+      if (!st || !active(st)) return;
+      const p = this._pilotFor(key);
+      chips.push(`<span class="chip" data-e="${st.entity_id}">${label} : <b>${fmtW(num(st.state))}</b>${p ? ` <small>${t.byPilot.replace("{p}", p).replace(" · ", "")}</small>` : ""}</span>`);
+    };
+    const below = (st) => num(st.state) !== null && st.attributes?.max !== undefined && num(st.state) < st.attributes.max;
+    add("charge_power_limit", t.capCharge, below);
+    add("discharge_power_limit", t.capDischarge, below);
+    add("excluded_power", t.excluded, (st) => (num(st.state) || 0) > 0);
+    const html = chips.join("");
+    if (html !== this._capsHtml) {
+      this._capsHtml = html;
+      box.innerHTML = html;
+      box.querySelectorAll(".chip").forEach((c) => c.addEventListener("click", () => this._moreInfo(c.dataset.e)));
+    }
+    box.style.display = html ? "" : "none";
+  }
+  // Badge « Calibration en cours » (batterie, ou batteries concernées d'un groupe)
+  _renderCalib() {
+    const t = this._t, $ = this._$;
+    const st = this._state("calibrating");
+    const on = st?.state === "on";
+    $("calib").style.display = on ? "" : "none";
+    if (!on) { $("calib-help").classList.remove("show"); return; }
+    const list = st.attributes?.batteries;
+    $("calib-txt").textContent = this._isGroup && list?.length ? t.calibratingIn.replace("{b}", list.map((n) => prettyModel(n) || n).join(", ")) : t.calibrating;
+    $("calib-help").textContent = t.calibHelp;
+  }
   _fmt(st) {
     if (!st) return "—";
     if (st.state === "unavailable") return this._t.unavailable;
@@ -281,6 +345,9 @@ class ZendureSolarflowCard extends HTMLElement {
           <div class="title" id="name"></div>
           <div class="pill" id="state"><i></i><span></span></div>
         </div>
+        <div class="calib" id="calib"><ha-icon icon="mdi:battery-sync"></ha-icon><span id="calib-txt"></span>
+          <button class="info" id="calib-i" title="i">i</button></div>
+        <div class="calib-help" id="calib-help"></div>
 
         <div class="hero">
           <div class="bat" id="bat-click">
@@ -351,6 +418,7 @@ class ZendureSolarflowCard extends HTMLElement {
             <ha-icon icon="mdi:menu-down"></ha-icon>
           </div>
           <div class="hint" id="hint"></div>
+          <div class="caps" id="caps"></div>
           <div class="note" id="member-note"></div>
           <div class="slabel" id="strat-label">${t.strategy}</div>
           <div class="selwrap" id="strat-wrap">
@@ -463,6 +531,7 @@ class ZendureSolarflowCard extends HTMLElement {
 
     // Ouvertures « plus d'infos »
     const mi = (id, fn) => $(id)?.addEventListener("click", () => this._moreInfo(fn()));
+    $("calib-i").addEventListener("click", (ev) => { ev.stopPropagation(); $("calib-help").classList.toggle("show"); });
     mi("bat-click", () => this._ents.electric_level);
     mi("state", () => this._ents.operating_mode);
     mi("t-home", () => this._ents.output_home_power);
@@ -659,7 +728,9 @@ class ZendureSolarflowCard extends HTMLElement {
     const temp = this._val("temperature");
     const lang = this._hass?.locale?.language || this._hass?.language || "en";
     $("v-temp").textContent = temp === null ? "—" : `${temp.toLocaleString(lang, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C`;
-    $("v-status").textContent = this._fmt(this._state("regulation_state"));
+    $("v-status").textContent = this._regText(this._state("regulation_state"));
+    this._renderCaps();
+    this._renderCalib();
     $("s-cyc").style.display = this._ents.energy_discharged ? "" : "none";
     $("s-eff").style.display = this._ents.energy_charged ? "" : "none";
     $("c-temp").style.display = this._ents.temperature ? "" : "none";
@@ -735,7 +806,8 @@ class ZendureSolarflowCard extends HTMLElement {
       const hi = num(st("soc_set")?.state);
       const range = lo === null && hi === null ? "" :
         ` · ${t.socMin} ${lo === null ? "—" : Math.round(lo) + " %"} · ${t.socMax} ${hi === null ? "—" : Math.round(hi) + " %"}`;
-      const state = b.active ? this._fmt(st("regulation_state")) : t.unavailable;
+      const calib = st("calibrating")?.state === "on" ? ` · <span class="mcal">${t.calibrating}</span>` : "";
+      const state = (b.active ? this._fmt(st("regulation_state")) : t.unavailable) + calib;
       const cls = !b.active ? "off" : p > 5 ? "charging" : p < -5 ? "discharging" : "";
       return `<div class="mrow2 ${cls}" data-e="${ents.electric_level || ""}">
         <div class="mname">${prettyModel(b.name) || b.name}</div>
@@ -995,6 +1067,17 @@ const STYLE = `
   .mrow2.discharging .mpow { color: var(--z-orange); }
   .mrow2.off { opacity: .55; }
   .hint { display: none; font-size: .78em; color: var(--z-orange); }
+  .caps { display: flex; flex-wrap: wrap; gap: 6px; }
+  .caps .chip { font-size: .78em; padding: 4px 10px; border-radius: 999px; background: var(--z-panel); cursor: pointer;
+    border: 1px solid color-mix(in srgb, var(--z-orange) 45%, transparent); }
+  .caps .chip small { opacity: .7; }
+  .calib { display: flex; align-items: center; gap: 6px; margin: 2px 16px 0; font-size: .82em; font-weight: 600; color: var(--z-accent, var(--primary-color)); }
+  .calib ha-icon { --mdc-icon-size: 18px; }
+  .calib .info { width: 18px; height: 18px; border-radius: 50%; border: 1px solid currentColor; background: none; color: inherit;
+    font: italic 700 11px/1 serif; cursor: pointer; padding: 0; }
+  .calib-help { display: none; margin: 4px 16px 0; font-size: .78em; opacity: .85; }
+  .calib-help.show { display: block; }
+  .mcal { color: var(--z-accent, var(--primary-color)); font-weight: 600; }
   .hint.show { display: block; }
   .manual { display: none; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--z-line); }
   .manual.show { display: flex; }

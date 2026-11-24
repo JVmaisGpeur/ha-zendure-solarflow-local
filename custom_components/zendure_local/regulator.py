@@ -25,6 +25,7 @@ import asyncio
 from collections.abc import Callable
 from datetime import timedelta
 import logging
+import math
 import time
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -61,7 +62,10 @@ from .const import (
     MODE_SMART_CHARGE,
     MODE_SMART_DISCHARGE,
     MODE_SOLAR,
+    STATE_CHARGE_CAPPED,
+    STATE_DISCHARGE_CAPPED,
     STATE_ERROR,
+    STATE_LOAD_EXCLUDED,
     STATE_GRID_CHARGING,
     STATE_GROUP,
     STATE_IMPORT_LIMITED,
@@ -106,6 +110,12 @@ class ZendureRegulator:
         # Réglables à chaud (entités import_limit et charge_target_soc, restaurées au démarrage)
         self.import_limit = float(opts.get(CONF_IMPORT_LIMIT, DEFAULT_IMPORT_LIMIT))
         self.charge_target_soc = float(DEFAULT_CHARGE_TARGET_SOC)
+        # Commandes de puissance (v1.6.0), jamais écrites dans la batterie.
+        # None = aucun plafond ; 0 = rien à ne pas couvrir.
+        self.charge_power_limit: float | None = None
+        self.discharge_power_limit: float | None = None
+        self.excluded_power: float = 0.0
+        self._manual_wanted: float | None = None  # consigne manuelle demandée (avant plafonds)
         self._last_run = 0.0
         self._last_cmd = 0.0
         self._pending: Callable[[], None] | None = None
@@ -250,6 +260,7 @@ class ZendureRegulator:
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="grid_sensor_required")
         self.stop()
         self.mode = mode
+        self._manual_wanted = self.coordinator.power_setpoint if mode == MODE_MANUAL else None
         if mode == MODE_OFF:
             self._set_state(STATE_OFF)
             if apply:
@@ -413,12 +424,78 @@ class ZendureRegulator:
 
         await self._finish(new, sp, charge_target)
 
+    # ------------------------------------------------------------ plafonds (v1.6.0)
+    def house_consumption(self) -> float | None:
+        """Consommation de la maison = soutirage + décharge de la batterie + solaire.
+
+        Sans capteur solaire, la production compte pour 0 : la batterie couvre alors
+        un peu moins, jamais plus."""
+        grid = self.last_grid if self.last_grid is not None else self._read_grid()
+        battery = self.coordinator.battery_ac_power
+        if grid is None or battery is None:
+            return None
+        solar = self._read_power(self.solar_sensor) or 0.0
+        return grid + battery + max(0.0, solar)
+
+    def apply_caps(self, watts: float) -> tuple[float, str | None]:
+        """Plafonds de charge / décharge et puissance à ne pas couvrir.
+
+        Retourne la consigne plafonnée et l'état correspondant si un plafond limite."""
+        state = None
+        if watts < 0 and self.charge_power_limit is not None and -watts > self.charge_power_limit:
+            watts, state = -self.charge_power_limit, STATE_CHARGE_CAPPED
+        if watts > 0 and self.discharge_power_limit is not None and watts > self.discharge_power_limit:
+            watts, state = self.discharge_power_limit, STATE_DISCHARGE_CAPPED
+        if watts > 0 and self.excluded_power > 0:
+            house = self.house_consumption()
+            # Consommation inconnue : par prudence, rien n'est couvert au-delà de 0.
+            # Petite marge (moitié de la zone morte) : le bruit du compteur ne doit pas
+            # faire couvrir, même brièvement, une partie des appareils exclus.
+            margin = min(self.deadband / 2, 50.0)
+            allowed = 0.0 if house is None else max(0.0, house - self.excluded_power - margin)
+            allowed = math.floor(allowed / 10) * 10
+            if watts > allowed:
+                watts, state = allowed, STATE_LOAD_EXCLUDED
+                # Pas de va-et-vient au rythme du bruit : la consigne en place est gardée
+                # si elle reste sous la limite et à moins d'une zone morte en dessous.
+                sp = self.coordinator.power_setpoint
+                if 0 < sp <= allowed and allowed - sp < self.deadband:
+                    watts = sp
+        return watts, state
+
+    @property
+    def caps_active(self) -> bool:
+        return (
+            self.charge_power_limit is not None
+            or self.discharge_power_limit is not None
+            or self.excluded_power > 0
+        )
+
+    async def async_set_manual(self, watts: float) -> None:
+        """Consigne manuelle : plafonds appliqués, la demande d'origine est retenue."""
+        self._manual_wanted = float(watts)
+        capped, cap_state = self.apply_caps(float(watts))
+        self._set_state(cap_state or STATE_MANUAL)
+        await self.coordinator.async_set_power(capped)
+        self._notify()
+
+    @callback
+    def settings_changed(self) -> None:
+        """Un réglage (plafond, limite…) a changé : prise en compte au cycle suivant."""
+        if self.mode == MODE_MANUAL and self._manual_wanted is not None:
+            self.hass.async_create_task(self.async_set_manual(self._manual_wanted))
+        else:
+            self._schedule()
+
     async def _finish(self, new: float, sp: float, charge_target: float | None, stable: bool = False) -> None:
         """Applique les limites de la cible, choisit l'état, envoie si besoin."""
         c = self.coordinator
         wanted = new
         new, reason = c.feasible(new, charge_target)
-        new = round(new / 10) * 10
+        capped, cap_state = self.apply_caps(new)
+        if cap_state and not reason:
+            reason = cap_state
+        new = round(capped / 10) * 10
         if reason:
             self._set_state(reason)
         elif self.mode == MODE_GRID_CHARGE:

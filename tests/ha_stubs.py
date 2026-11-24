@@ -357,6 +357,7 @@ class DeviceInfo(dict):
 _mod("homeassistant.helpers.device_registry", DeviceInfo=DeviceInfo, async_get=lambda hass: None)
 
 RESTORE: dict[str, Any] = {}  # unique_id → état précédent (pour simuler un redémarrage)
+RESTORE_ATTRS: dict[str, dict] = {}  # unique_id → attributs de l'état précédent
 
 
 class Entity:
@@ -398,7 +399,9 @@ class Entity:
 class RestoreEntity(Entity):
     async def async_get_last_state(self):
         st = RESTORE.get(self.unique_id)
-        return types.SimpleNamespace(state=st) if st is not None else None
+        if st is None:
+            return None
+        return types.SimpleNamespace(state=str(st), attributes=RESTORE_ATTRS.get(self.unique_id, {}))
 
 
 _mod("homeassistant.helpers.entity", Entity=Entity)

@@ -11,7 +11,7 @@ set_external_control:
       selector:
         boolean:
     controller:
-      example: "Chef d'orchestre énergie"
+      example: "Mon pilote"
       selector:
         text:
     controlled_keys:

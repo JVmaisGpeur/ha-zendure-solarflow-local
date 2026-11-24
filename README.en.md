@@ -95,6 +95,7 @@ Most settings have a default that suits. Each field also has a short explanation
 | **Strategy** (group) | How power is shared: **SOC balance** (default, levels converge), **Simultaneous** (in proportion to each one's power), **Priority** (in the chosen order). |
 | **Power setpoint** | Manual mode: + supplies the home, − charges. Setting it switches to manual mode. |
 | **Import limit / Charge target SOC** | “Grid charge” mode. See below. |
+| **Charge / discharge power cap, Power not to cover** | No effect until set. They limit the setpoint without changing mode. See [External control](#external-control). In the card, they only appear when they have an effect. |
 
 ## Operating modes
 
@@ -187,28 +188,6 @@ The **Max charge power** and **Max discharge power** sensors show the limit actu
 
 An unknown pack raises an alert: enter the capacity in the battery options. **Available energy** = capacity × (SOC − min SOC); **Missing energy** = capacity × (max SOC − SOC).
 
-### Declaring external control: `zendure_local.set_external_control`
-
-An external controller states that it controls the battery (or group), and which settings. The action **does not change how the battery works**: it only declares it, in the `external_control` sensor.
-
-| Field | Role |
-|---|---|
-| `device_id` | Battery or group concerned |
-| `active` | `true`: take over or renew; `false`: hand back |
-| `controller` | Controller name (`controller` attribute) |
-| `controlled_keys` | Keys of this table it controls, e.g. `["operating_mode", "import_limit", "charge_target_soc"]` |
-
-Without a new call with `active: true`, the declaration **expires after 30 minutes**: a stopped or removed controller never stays shown as active. It survives a Home Assistant restart as long as it has not expired.
-
-```yaml
-action: zendure_local.set_external_control
-data:
-  device_id: 0123456789abcdef
-  active: true
-  controller: Energy conductor
-  controlled_keys: [operating_mode, import_limit, charge_target_soc]
-```
-
 ## Lovelace card included
 
 The integration installs and loads its own card: **nothing to add to resources or HACS**.
@@ -261,8 +240,11 @@ A single battery and a group expose the same control entities (**interface versi
 | `available_energy` / `missing_energy` | sensor | kWh | ✓ | ✓ |
 | `battery_power` | sensor | W, + charge, − discharge | ✓ | ✓ |
 | `max_charge_power` / `max_discharge_power` | sensor | W | ✓ | ✓ |
-| `regulation_state` | sensor (enum) | `off`, `manual`, `regulating`, `grid_charging`, `target_reached`, `import_limited`, `soc_max_reached`, `soc_min_reached`, `sensor_unavailable`, `error` (+ `group` on a member, `degraded` on a group) | ✓ | ✓ |
+| `regulation_state` | sensor (enum) | `off`, `manual`, `regulating`, `grid_charging`, `target_reached`, `import_limited`, `soc_max_reached`, `soc_min_reached`, `sensor_unavailable`, `error`, `charge_capped`, `discharge_capped`, `load_excluded` (+ `group` on a member, `degraded` on a group) | ✓ | ✓ |
 | `external_control` | sensor (enum) | `active`, `inactive` ; attributs `controller`, `controlled_keys` | ✓ | ✓ |
+| `charge_power_limit` / `discharge_power_limit` | number | W, maximum value = no cap | ✓ | ✓ (total) |
+| `excluded_power` | number | W, 0 = no effect | ✓ | ✓ |
+| `calibrating` | binary_sensor | `batteries` attribute on a group | ✓ (if `socStatus`) | ✓ |
 | `strategy` | select | `simultaneous`, `soc_balance`, `priority` | — | ✓ |
 | `active_batteries` | sensor | count | — | ✓ |
 
@@ -272,7 +254,55 @@ Rules:
 - Diagnostic sensors, options and attributes are not part of the interface.
 - **Key language**: this interface uses English keys, while the ha-tarifs-electricite integration keeps French keys (already published). This is deliberate and must not be “fixed” without a major version.
 
-Usage example: an external controller (for instance a future “energy conductor” taking tariffs and solar forecast into account) schedules an off-peak charge with `import_limit`, `charge_target_soc` and `operating_mode` = `grid_charge`. The integration simply applies the latest command received, whoever sent it.
+Usage example: an external controller (an integration or an automation taking tariffs and solar forecast into account) schedules an off-peak charge with `import_limit`, `charge_target_soc` and `operating_mode` = `grid_charge`. The integration simply applies the latest command received, whoever sent it.
+
+
+### External control
+
+The commands below can be set by hand, by an automation or by any external controller. **As long as nobody sets them, they have no effect.** Their value stays in Home Assistant and is **never written to the battery's memory**: only the resulting setpoints are sent, to RAM, as usual. They are set with the standard `number.set_value` action and applied at the next regulation cycle.
+
+| Command (`translation_key`) | Range | No effect | Effect |
+|---|---|---|---|
+| **Charge power cap** (`charge_power_limit`) | 0 W to max charge | max charge | The battery never charges above it, solar or grid. 0 W = no charging. |
+| **Discharge power cap** (`discharge_power_limit`) | 0 W to max discharge | max discharge | The battery never supplies more to the home. 0 W = no discharging. |
+| **Power not to cover** (`excluded_power`) | 0 to 10,000 W | 0 W | Discharge only: the battery never supplies more than the home consumption minus this power (e.g. a water heater running). |
+
+- **Where**: on each group and each battery outside a group. On a group, the cap applies to the total, shared according to the strategy. On a group member, the value is kept but ignored.
+- **Modes**: all modes where the regulation commands a power, manual included. The final setpoint is the minimum of the Zendure app limits, the options, the circuit and the cap; in Grid charge, the import limit applies as well.
+- **Home consumption** = grid import + battery discharge + solar production. Without a solar sensor, production counts as 0: the battery then covers a little less, never more. A small margin (half the deadband, 50 W at most) keeps a meter noise spike from covering the excluded appliances.
+- **Regulation state**: `charge_capped`, `discharge_capped` or `load_excluded` when one of these commands limits the setpoint.
+- **Persistence**: a value set by hand survives a restart. A value set by a controller that declares this key (see below) returns to “no effect” when its declaration expires or is withdrawn, even if that happens while Home Assistant is stopped: a battery is never left blocked by a vanished controller. The `set_by` attribute names the controller.
+
+#### Declaring external control: `zendure_local.set_external_control`
+
+An external controller states that it controls the battery (or group), and which settings. The action **does not change how the battery works**: it declares it in the `external_control` sensor.
+
+| Field | Role |
+|---|---|
+| `device_id` | Battery or group concerned |
+| `active` | `true`: take over or renew; `false`: hand back |
+| `controller` | Controller name (`controller` attribute) |
+| `controlled_keys` | Controlled keys: `operating_mode`, `import_limit`, `charge_target_soc`, `min_soc`, `soc_set`, `charge_power_limit`, `discharge_power_limit`, `excluded_power` |
+
+Without a new call with `active: true`, the declaration **expires after 30 minutes**. It survives a Home Assistant restart as long as it has not expired. On expiry or withdrawal, `charge_power_limit`, `discharge_power_limit` and `excluded_power` set by that controller return to “no effect”; other keys keep their value.
+
+```yaml
+action: zendure_local.set_external_control
+data:
+  device_id: 0123456789abcdef
+  active: true
+  controller: My controller
+  controlled_keys: [discharge_power_limit, excluded_power]
+```
+
+#### Charge level calibration
+
+- **Calibrating** (`calibrating`, binary sensor): follows the battery's `socStatus` property (1 = calibrating). Created only if the battery provides `socStatus`. On a group: on if at least one battery calibrates, listed in the `batteries` attribute.
+- **Calibration time** (`calibration_time`, diagnostic, disabled by default): `batCalTime` property, in minutes, **read only** (Zendure advises against changing it).
+- The integration never interferes with a calibration: the device runs it alone. According to Zendure support, it happens after about 30 days without a full charge; for it to complete, keep the battery powered, its charge limit at 100 %, and do not lock its power at 0 W.
+- A calibration lasting more than **72 h** raises an alert in **Repairs**, with the details to give Zendure support.
+
+**Detection by a controller**: by the presence of the entities (device + `translation_key`), not by version number. The keys `charge_power_limit`, `discharge_power_limit`, `excluded_power`, `calibrating` and `calibration_time` will not change anymore.
 
 ## Technical details
 

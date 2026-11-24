@@ -95,6 +95,7 @@ La plupart des réglages ont une valeur par défaut qui convient. Chaque champ a
 | **Stratégie** (groupe) | Répartition entre les batteries : **Équilibrage des SOC** (par défaut, les niveaux convergent), **Simultanée** (au prorata de la puissance de chacune), **Priorité** (dans l'ordre choisi). |
 | **Consigne de puissance** | Mode manuel : + fournit à la maison, − charge. La régler passe en mode manuel. |
 | **Limite de soutirage / SOC cible de charge** | Mode « Charge réseau ». Voir ci-dessous. |
+| **Plafond de charge / de décharge, Puissance à ne pas couvrir** | Sans effet tant qu'on ne les règle pas. Limitent la consigne sans changer de mode. Voir [Pilotage externe](#pilotage-externe). Dans la carte, ils n'apparaissent que lorsqu'ils ont un effet. |
 
 ## Modes de fonctionnement
 
@@ -187,28 +188,6 @@ La **capacité utile** est calculée d'après le type de chaque pack détecté :
 
 Un pack inconnu déclenche une alerte : saisis alors la capacité dans les options de la batterie. **Énergie disponible** = capacité × (SOC − SOC min) ; **Énergie manquante** = capacité × (SOC max − SOC).
 
-### Déclarer un pilotage externe : `zendure_local.set_external_control`
-
-Un pilote externe indique qu'il commande la batterie (ou le groupe), et quels réglages. Le service **ne change rien au fonctionnement de la batterie** : il ne fait que le déclarer, dans le capteur `external_control`.
-
-| Champ | Rôle |
-|---|---|
-| `device_id` | Batterie ou groupe concerné |
-| `active` | `true` : prise de main ou renouvellement ; `false` : fin |
-| `controller` | Nom du pilote (attribut `controller`) |
-| `controlled_keys` | Clés de ce tableau qu'il commande, par exemple `["operating_mode", "import_limit", "charge_target_soc"]` |
-
-Sans nouvel appel avec `active: true`, la déclaration **expire après 30 minutes** : un pilote arrêté ou désinstallé ne reste jamais affiché comme actif. Elle est conservée au redémarrage de Home Assistant tant qu'elle n'a pas expiré.
-
-```yaml
-action: zendure_local.set_external_control
-data:
-  device_id: 0123456789abcdef
-  active: true
-  controller: Chef d'orchestre énergie
-  controlled_keys: [operating_mode, import_limit, charge_target_soc]
-```
-
 ## Carte Lovelace incluse
 
 L'intégration installe et charge sa propre carte : **rien à ajouter dans les ressources ni dans HACS**.
@@ -261,8 +240,11 @@ Une batterie seule et un groupe exposent les mêmes entités de pilotage (**vers
 | `available_energy` / `missing_energy` | sensor | kWh | ✓ | ✓ |
 | `battery_power` | sensor | W, + charge, − décharge | ✓ | ✓ |
 | `max_charge_power` / `max_discharge_power` | sensor | W | ✓ | ✓ |
-| `regulation_state` | sensor (enum) | `off`, `manual`, `regulating`, `grid_charging`, `target_reached`, `import_limited`, `soc_max_reached`, `soc_min_reached`, `sensor_unavailable`, `error` (+ `group` sur un membre, `degraded` sur un groupe) | ✓ | ✓ |
+| `regulation_state` | sensor (enum) | `off`, `manual`, `regulating`, `grid_charging`, `target_reached`, `import_limited`, `soc_max_reached`, `soc_min_reached`, `sensor_unavailable`, `error`, `charge_capped`, `discharge_capped`, `load_excluded` (+ `group` sur un membre, `degraded` sur un groupe) | ✓ | ✓ |
 | `external_control` | sensor (enum) | `active`, `inactive` ; attributs `controller`, `controlled_keys` | ✓ | ✓ |
+| `charge_power_limit` / `discharge_power_limit` | number | W, valeur maximale = sans plafond | ✓ | ✓ (total) |
+| `excluded_power` | number | W, 0 = sans effet | ✓ | ✓ |
+| `calibrating` | binary_sensor | attribut `batteries` sur un groupe | ✓ (si `socStatus`) | ✓ |
 | `strategy` | select | `simultaneous`, `soc_balance`, `priority` | — | ✓ |
 | `active_batteries` | sensor | nombre | — | ✓ |
 
@@ -272,7 +254,55 @@ Règles :
 - Les capteurs de diagnostic, les options et les attributs ne font pas partie de l'interface.
 - **Langue des clés** : les clés de cette interface sont en anglais, celles de l'intégration ha-tarifs-electricite restent en français (déjà publiées). C'est un choix volontaire, qui ne doit pas être « corrigé » sans version majeure.
 
-Exemple d'usage : un pilote externe (par exemple un futur « Chef d'orchestre énergie » qui tient compte des tarifs et de la prévision solaire) programme une charge en heures creuses avec `import_limit`, `charge_target_soc` et `operating_mode` = `grid_charge`. L'intégration applique simplement la dernière commande reçue, d'où qu'elle vienne.
+Exemple d'usage : un pilote externe (une intégration ou une automatisation qui tient compte des tarifs et de la prévision solaire) programme une charge en heures creuses avec `import_limit`, `charge_target_soc` et `operating_mode` = `grid_charge`. L'intégration applique simplement la dernière commande reçue, d'où qu'elle vienne.
+
+
+### Pilotage externe
+
+Les commandes ci-dessous se règlent à la main, par une automatisation ou par n'importe quel pilote externe. **Tant que personne ne les règle, elles sont sans effet.** Leur valeur reste dans Home Assistant et n'est **jamais écrite dans la mémoire de la batterie** : seules les consignes qui en découlent sont envoyées, en RAM, comme d'habitude. Elles se règlent avec le service standard `number.set_value` et sont prises en compte au cycle de régulation suivant.
+
+| Commande (`translation_key`) | Plage | Sans effet | Effet |
+|---|---|---|---|
+| **Plafond de charge** (`charge_power_limit`) | 0 W à la charge maximale | la charge maximale | La batterie ne charge jamais au-delà, solaire ou réseau. 0 W = aucune charge. |
+| **Plafond de décharge** (`discharge_power_limit`) | 0 W à la décharge maximale | la décharge maximale | La batterie ne fournit jamais plus à la maison. 0 W = aucune décharge. |
+| **Puissance à ne pas couvrir** (`excluded_power`) | 0 à 10 000 W | 0 W | En décharge seulement : la batterie ne fournit jamais plus que la consommation de la maison moins cette puissance (ex. chauffe-eau en marche). |
+
+- **Où** : sur chaque groupe et chaque batterie hors groupe. Sur un groupe, le plafond vaut pour le total, réparti selon la stratégie. Sur une batterie membre, la valeur est gardée mais ignorée.
+- **Modes concernés** : tous ceux où la régulation commande une puissance, y compris le mode manuel. La consigne finale est le minimum des limites de l'app Zendure, des options, du circuit et du plafond ; en Charge réseau, la limite de soutirage s'applique en plus.
+- **Consommation de la maison** = soutirage au compteur + décharge de la batterie + production solaire. Sans capteur solaire, la production compte pour 0 : la batterie couvre alors un peu moins, jamais plus. Une petite marge (la moitié de la zone morte, 50 W au plus) évite qu'un pic de bruit du compteur fasse couvrir les appareils exclus.
+- **État de la régulation** : `charge_capped`, `discharge_capped` ou `load_excluded` quand l'une de ces commandes limite la consigne.
+- **Persistance** : une valeur réglée à la main est gardée au redémarrage. Une valeur posée par un pilote qui déclare cette clé (voir ci-dessous) revient à « sans effet » quand sa déclaration expire ou est retirée, même si cela arrive pendant un arrêt de Home Assistant : une batterie ne reste jamais bloquée par un pilote disparu. L'attribut `set_by` indique le pilote.
+
+#### Déclarer un pilotage externe : `zendure_local.set_external_control`
+
+Un pilote externe indique qu'il commande la batterie (ou le groupe), et quels réglages. Le service **ne change rien au fonctionnement de la batterie** : il le déclare dans le capteur `external_control`.
+
+| Champ | Rôle |
+|---|---|
+| `device_id` | Batterie ou groupe concerné |
+| `active` | `true` : prise de main ou renouvellement ; `false` : fin |
+| `controller` | Nom du pilote (attribut `controller`) |
+| `controlled_keys` | Clés commandées : `operating_mode`, `import_limit`, `charge_target_soc`, `min_soc`, `soc_set`, `charge_power_limit`, `discharge_power_limit`, `excluded_power` |
+
+Sans nouvel appel avec `active: true`, la déclaration **expire après 30 minutes**. Elle est conservée au redémarrage de Home Assistant tant qu'elle n'a pas expiré. À l'expiration ou au retrait, `charge_power_limit`, `discharge_power_limit` et `excluded_power` posés par ce pilote reviennent à « sans effet » ; les autres clés gardent leur valeur.
+
+```yaml
+action: zendure_local.set_external_control
+data:
+  device_id: 0123456789abcdef
+  active: true
+  controller: Mon pilote
+  controlled_keys: [discharge_power_limit, excluded_power]
+```
+
+#### Calibration du niveau de charge
+
+- **Calibration en cours** (`calibrating`, capteur binaire) : suit la propriété `socStatus` de la batterie (1 = calibration en cours). Créé seulement si la batterie fournit `socStatus`. Sur un groupe : vrai si au moins une batterie calibre, avec leur liste dans l'attribut `batteries`.
+- **Durée de calibration** (`calibration_time`, diagnostic, désactivé par défaut) : propriété `batCalTime`, en minutes, **lue seulement** (Zendure déconseille de la modifier).
+- L'intégration ne touche pas à une calibration : l'appareil la mène seul. Selon le support Zendure, elle a lieu après environ 30 jours sans charge complète ; pour qu'elle aboutisse, laisser la batterie sous tension, sa limite de charge à 100 %, et ne pas bloquer sa puissance à 0 W.
+- Une calibration qui dure plus de **72 h** déclenche une alerte dans **Réparations**, avec les informations à donner au support Zendure.
+
+**Détection par un pilote** : par la présence des entités (appareil + `translation_key`), pas par le numéro de version. Les clés `charge_power_limit`, `discharge_power_limit`, `excluded_power`, `calibrating` et `calibration_time` ne changeront plus.
 
 ## Fonctionnement technique
 

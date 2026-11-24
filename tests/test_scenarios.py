@@ -380,10 +380,208 @@ async def s_single_battery_unchanged(loop):
     ok("Batterie seule : couplage intelligent toujours à ~0 W au compteur (900 W, surplus 700 W, 1500 W)")
 
 
+# ---------------------------------------------------------------- v1.6.0 : commandes de puissance
+def remember(hass, entry, keys):
+    """Ce que Home Assistant mémorise à l'arrêt (valeur + attributs)."""
+    for ent in hass.entities[entry.entry_id]:
+        if ent.translation_key in keys:
+            stubs.RESTORE[ent.unique_id] = ent.native_value
+            stubs.RESTORE_ATTRS[ent.unique_id] = dict(ent.extra_state_attributes or {})
+
+
+async def s_caps_default_no_effect(loop):
+    """Sans réglage, les trois commandes sont sans effet (valeurs par défaut)."""
+    hass, integ, bats, entries, g = await w.setup(loop, SPECS, group={"hosts": [AC, ACP], "options": {}})
+    for e in (*entries.values(), g):
+        reg = e.runtime_data.regulator
+        assert reg.charge_power_limit is None and reg.discharge_power_limit is None and reg.excluded_power == 0
+        assert not reg.caps_active
+    gc = w.entity(hass, g, "charge_power_limit")
+    assert gc.native_value == g.runtime_data.max_charge_power, gc.native_value
+    assert w.entity(hass, g, "excluded_power").native_value == 0
+    ok("Commandes de puissance par défaut : aucun plafond, 0 W non couvert (comportement v1.5.0)")
+
+
+async def s_charge_cap(loop):
+    """Plafond de charge 600 W, mode smart, surplus 1 500 W : 600 W chargés, 900 W injectés."""
+    hass, integ, bats, entries, _ = await w.setup(loop, {ACP: SPECS[ACP]})
+    e = entries[ACP]
+    world = w.World(loop, hass, bats, seed=3)
+    world.load, world.solar = 400, 1900  # surplus 1 500 W
+    world.start()
+    await set_number(hass, e, "charge_power_limit", 600)
+    await select(hass, e, "operating_mode", "smart")
+    await asyncio.sleep(60)
+    late = [x for x in world.log if x[0] > loop.time() - 20]
+    charge = statistics.mean(-x[2][ACP][0] for x in late)
+    grid = statistics.mean(x[1] for x in late)
+    assert abs(charge - 600) <= 20 and abs(grid + 900) <= 40, (charge, grid)
+    assert max(-v for _t, v in bats[ACP].commands if v is not None) <= 600
+    assert e.runtime_data.regulator.state == "charge_capped"
+    ok(f"Plafond de charge 600 W (surplus 1 500 W) : charge {charge:.0f} W, {-grid:.0f} W injectés, état charge_capped")
+
+
+async def s_discharge_cap_zero(loop):
+    """Plafond de décharge 0 W avec 1 000 W de consommation : aucune décharge."""
+    hass, integ, bats, entries, _ = await w.setup(loop, {ACP: SPECS[ACP]})
+    e = entries[ACP]
+    world = w.World(loop, hass, bats, seed=4)
+    world.load = 1000
+    world.start()
+    await select(hass, e, "operating_mode", "smart")
+    await asyncio.sleep(30)
+    await set_number(hass, e, "discharge_power_limit", 0)
+    await asyncio.sleep(30)
+    late = [x for x in world.log if x[0] > loop.time() - 15]
+    assert max(x[2][ACP][0] for x in late) <= 0, late[-1]
+    assert statistics.mean(x[1] for x in late) > 950
+    assert e.runtime_data.regulator.state == "discharge_capped"
+    # Manuel : la consigne est plafonnée aussi
+    await set_number(hass, e, "power_setpoint", 800)
+    await asyncio.sleep(5)
+    assert bats[ACP].props["outputLimit"] == 0 and e.runtime_data.regulator.state == "discharge_capped"
+    await set_number(hass, e, "discharge_power_limit", 2400)  # = maximum : plus de plafond
+    await asyncio.sleep(5)
+    assert e.runtime_data.regulator.discharge_power_limit is None
+    assert bats[ACP].props["outputLimit"] == 800
+    ok("Plafond de décharge 0 W (maison 1 000 W) : aucune décharge, état discharge_capped ; "
+       "en manuel aussi, et retour à 800 W quand le plafond est levé")
+
+
+async def s_group_charge_cap(loop):
+    """Groupe de deux batteries, plafond de charge 1 000 W : le total ne le dépasse jamais."""
+    hass, integ, bats, entries, g = await w.setup(loop, SPECS, group={"hosts": [AC, ACP], "options": {}})
+    world = w.World(loop, hass, bats, seed=6)
+    world.load, world.solar = 300, 3300  # surplus 3 000 W
+    world.start()
+    await select(hass, g, "strategy", "simultaneous")
+    await set_number(hass, g, "charge_power_limit", 1000)
+    await select(hass, g, "operating_mode", "smart")
+    await asyncio.sleep(90)
+    totals = [sum(-v[0] for v in x[2].values()) for x in world.log if x[0] > 20]
+    assert max(totals) <= 1000 + 5, max(totals)
+    last = world.log[-1][2]
+    assert last[AC][0] < 0 and last[ACP][0] < 0, last  # les deux chargent (stratégie simultanée)
+    assert g.runtime_data.regulator.state == "charge_capped"
+    ok(f"Groupe, plafond de charge 1 000 W : total max {max(totals):.0f} W, réparti "
+       f"({-last[AC][0]} W / {-last[ACP][0]} W)")
+
+
+async def s_excluded_power(loop):
+    """Puissance à ne pas couvrir 2 400 W, maison 500 W, solaire 1 000 W : décharge ≤ 500 W."""
+    hass, integ, bats, entries, _ = await w.setup(loop, {ACP: SPECS[ACP]}, options={"solar_sensor": w.SOLAR})
+    e = entries[ACP]
+    world = w.World(loop, hass, bats, seed=7)
+    world.load, world.extra, world.solar = 500, 2400, 1000  # chauffe-eau 2 400 W en marche
+    world.start()
+    await set_number(hass, e, "excluded_power", 2400)
+    await select(hass, e, "operating_mode", "smart")
+    await asyncio.sleep(60)
+    late = [x for x in world.log if x[0] > loop.time() - 20]
+    dis = statistics.mean(x[2][ACP][0] for x in late)
+    assert 430 <= dis <= 500 and max(x[2][ACP][0] for x in late) <= 500, dis
+    assert e.runtime_data.regulator.state == "load_excluded"
+    # Surplus solaire : la charge n'est pas modifiée, aucune charge réseau
+    world.extra, world.solar = 0, 2000  # surplus 1 500 W
+    await asyncio.sleep(60)
+    late = [x for x in world.log if x[0] > loop.time() - 20]
+    charge = statistics.mean(-x[2][ACP][0] for x in late)
+    assert abs(charge - 1500) <= 60 and statistics.mean(x[1] for x in late) < 40, charge
+    assert e.runtime_data.regulator.state == "regulating"
+    ok(f"Puissance à ne pas couvrir 2 400 W : décharge {dis:.0f} W (maison 500 W), état load_excluded ; "
+       f"avec surplus, charge solaire inchangée ({charge:.0f} W), pas de charge réseau")
+
+
+async def s_pilot_expiry_and_manual_restart(loop):
+    """Valeur d'un pilote : remise par défaut à l'expiration ; valeur manuelle : gardée au redémarrage."""
+    stubs.RESTORE.clear()
+    stubs.RESTORE_ATTRS.clear()
+    hass, integ, bats, entries, _ = await w.setup(loop, {ACP: SPECS[ACP]})
+    e = entries[ACP]
+    ext = e.runtime_data.external
+    ext.async_set(True, "Pilote de test", ["discharge_power_limit"])
+    await set_number(hass, e, "discharge_power_limit", 0)
+    ent = w.entity(hass, e, "discharge_power_limit")
+    assert ent.native_value == 0 and ent.extra_state_attributes["set_by"] == "Pilote de test"
+    await asyncio.sleep(29 * 60)
+    assert e.runtime_data.regulator.discharge_power_limit == 0
+    await asyncio.sleep(2 * 60)
+    assert e.runtime_data.regulator.discharge_power_limit is None
+    assert ent.native_value == e.runtime_data.max_discharge_power
+    # Retrait explicite d'une déclaration : même effet
+    ext.async_set(True, "Pilote de test", ["excluded_power"])
+    await set_number(hass, e, "excluded_power", 1200)
+    ext.async_set(False)
+    assert e.runtime_data.regulator.excluded_power == 0
+    # Valeur réglée à la main, sans pilote : gardée au redémarrage
+    await set_number(hass, e, "charge_power_limit", 700)
+    # Valeur d'un pilote dont la déclaration a expiré pendant l'arrêt : non restaurée
+    ext.async_set(True, "Pilote de test", ["excluded_power"])
+    await set_number(hass, e, "excluded_power", 900)
+    remember(hass, e, ("charge_power_limit", "excluded_power"))
+    uid = w.entity(hass, e, "excluded_power").unique_id
+    stubs.RESTORE_ATTRS[uid]["set_by_until"] = "2000-01-01T00:00:00+00:00"
+    await hass.config_entries.async_reload(e.entry_id)
+    reg = e.runtime_data.regulator
+    assert reg.charge_power_limit == 700 and reg.excluded_power == 0, (reg.charge_power_limit, reg.excluded_power)
+    ok("Pilote qui ne renouvelle pas : plafond de décharge 0 W levé après 30 min ; retrait = remise à 0 ; "
+       "valeur manuelle (700 W) gardée au redémarrage, valeur d'un pilote expiré non restaurée")
+
+
+async def s_no_flash_writes(loop):
+    """Écrire les commandes toutes les minutes ne provoque aucune écriture en mémoire flash."""
+    hass, integ, bats, entries, _ = await w.setup(loop, {ACP: SPECS[ACP]})
+    e = entries[ACP]
+    world = w.World(loop, hass, bats, seed=8)
+    world.load, world.solar = 400, 1900
+    world.start()
+    await select(hass, e, "operating_mode", "smart")
+    flash: list[dict] = []
+    api = e.runtime_data.api
+    orig = api.async_write
+
+    async def spy(sn, props):
+        if "smartMode" not in props or props.get("smartMode") != 1:
+            flash.append(props)
+        await orig(sn, props)
+
+    api.async_write = spy
+    for i in range(10):
+        await set_number(hass, e, "charge_power_limit", 300 + 100 * i)
+        await set_number(hass, e, "excluded_power", 100 * i)
+        await set_number(hass, e, "discharge_power_limit", 1000 + 50 * i)
+        await asyncio.sleep(60)
+    assert not flash, flash[:3]
+    ok("Commandes de puissance écrites chaque minute pendant 10 min : aucune écriture hors RAM (smartMode=1)")
+
+
+async def s_calibrating(loop):
+    """calibrating suit socStatus ; groupe : vrai si une batterie calibre ; alerte après 72 h."""
+    stubs.ISSUES.clear()
+    hass, integ, bats, entries, g = await w.setup(loop, SPECS, group={"hosts": [AC, ACP], "options": {}})
+    cal = w.entity(hass, entries[AC], "calibrating")
+    gcal = w.entity(hass, g, "calibrating")
+    assert cal.is_on is False and gcal.is_on is False
+    bats[AC].soc_status = 1
+    await entries[AC].runtime_data.async_refresh()
+    assert cal.is_on is True and gcal.is_on is True
+    assert gcal.extra_state_attributes["batteries"] == [entries[AC].title]
+    await asyncio.sleep(73 * 3600)
+    await entries[AC].runtime_data.async_refresh()
+    assert any(i.startswith("calibration_stuck") for i in stubs.ISSUES), stubs.ISSUES
+    bats[AC].soc_status = 0
+    await entries[AC].runtime_data.async_refresh()
+    assert cal.is_on is False and not any(i.startswith("calibration_stuck") for i in stubs.ISSUES)
+    assert w.entity(hass, entries[AC], "calibration_time").native_value == 43200
+    ok("Calibration : suit socStatus, groupe vrai avec la liste des batteries, alerte Réparations après 72 h, levée à la fin")
+
+
 SCENARIOS = [
     s_single_battery_unchanged, s_grid_charge_target_and_import, s_restart_persistence, s_circuit_limit,
     s_group_soc_balance_converges, s_simultaneous, s_priority_switchover, s_degraded,
     s_member_settings_and_leave, s_leave_and_delete, s_group_slow_meter_no_reversal,
+    s_caps_default_no_effect, s_charge_cap, s_discharge_cap_zero, s_group_charge_cap, s_excluded_power,
+    s_pilot_expiry_and_manual_restart, s_no_flash_writes, s_calibrating,
 ]
 
 if __name__ == "__main__":

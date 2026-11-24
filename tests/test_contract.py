@@ -11,6 +11,10 @@ BOTH = {
     "electric_level": "sensor", "usable_capacity": "sensor", "available_energy": "sensor", "missing_energy": "sensor",
     "battery_power": "sensor", "max_charge_power": "sensor", "max_discharge_power": "sensor", "regulation_state": "sensor",
     "external_control": "sensor",
+    "charge_power_limit": "number",
+    "discharge_power_limit": "number",
+    "excluded_power": "number",
+    "calibrating": "binary_sensor",
 }
 GROUP_ONLY = {"strategy": "select", "active_batteries": "sensor"}
 

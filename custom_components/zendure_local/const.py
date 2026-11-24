@@ -102,6 +102,9 @@ STATE_SOC_MAX = "soc_max_reached"
 STATE_SOC_MIN = "soc_min_reached"
 STATE_SENSOR_UNAVAILABLE = "sensor_unavailable"
 STATE_ERROR = "error"
+STATE_CHARGE_CAPPED = "charge_capped"  # plafond de charge atteint
+STATE_DISCHARGE_CAPPED = "discharge_capped"  # plafond de décharge atteint
+STATE_LOAD_EXCLUDED = "load_excluded"  # décharge limitée par la puissance à ne pas couvrir
 STATE_DEGRADED = "degraded"  # groupe uniquement
 STATE_GROUP = "group"  # batterie membre pilotée par son groupe
 REGULATION_STATES = [
@@ -115,6 +118,9 @@ REGULATION_STATES = [
     STATE_SOC_MIN,
     STATE_SENSOR_UNAVAILABLE,
     STATE_ERROR,
+    STATE_CHARGE_CAPPED,
+    STATE_DISCHARGE_CAPPED,
+    STATE_LOAD_EXCLUDED,
 ]
 BATTERY_REGULATION_STATES = [*REGULATION_STATES, STATE_GROUP]
 GROUP_REGULATION_STATES = [*REGULATION_STATES, STATE_DEGRADED]
@@ -184,3 +190,12 @@ def pretty_model(name: str | None) -> str:
     # les mêmes identifiants d'entités et HA ajoute « _2 » à la seconde batterie.
     rest = re.sub(r"\s*\+$", " Plus", rest)
     return " ".join(p for p in (head, rest) if p)
+
+# Commandes de puissance pilotables (v1.6.0) : valeurs dans Home Assistant uniquement,
+# jamais écrites dans la batterie.
+KEY_CHARGE_POWER_LIMIT = "charge_power_limit"
+KEY_DISCHARGE_POWER_LIMIT = "discharge_power_limit"
+KEY_EXCLUDED_POWER = "excluded_power"
+MAX_EXCLUDED_POWER = 10000
+# Calibration du SOC : alerte au-delà de cette durée
+CALIBRATION_STUCK_HOURS = 72

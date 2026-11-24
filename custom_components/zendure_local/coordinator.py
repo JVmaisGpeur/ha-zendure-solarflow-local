@@ -143,6 +143,19 @@ class ZendureCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return float(out or 0) - float(inp or 0)
 
     @property
+    def calibrating(self) -> bool | None:
+        """Calibration du SOC en cours (propriété socStatus, 1 = calibration).
+
+        None si l'appareil ne fournit pas socStatus."""
+        v = self.props.get("socStatus")
+        if v is None:
+            return None
+        try:
+            return int(v) == 1
+        except (TypeError, ValueError):
+            return None
+
+    @property
     def battery_power(self) -> float | None:
         """Puissance côté packs : + charge, − décharge (convention du capteur battery_power)."""
         p = self.props

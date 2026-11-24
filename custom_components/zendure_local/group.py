@@ -131,6 +131,10 @@ class ZendureGroupHub:
     def active(self) -> dict[str, Any]:
         return {eid: c for eid, c in self._coordinators().items() if self.is_active(c)}
 
+    def calibrating_members(self) -> list[str]:
+        """Noms des batteries du groupe qui calibrent leur SOC."""
+        return [self.member_name(eid) for eid, c in self._coordinators().items() if c.calibrating]
+
     @property
     def degraded(self) -> bool:
         return len(self.active()) < len(self.member_ids)

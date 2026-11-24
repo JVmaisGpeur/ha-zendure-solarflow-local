@@ -340,7 +340,10 @@
           "sensor_unavailable": "Sensor unavailable",
           "error": "Error",
           "degraded": "Degraded",
-          "group": "Controlled by the group"
+          "group": "Controlled by the group",
+          "charge_capped": "Charge capped",
+          "discharge_capped": "Discharge capped",
+          "load_excluded": "Power not covered"
         }
       },
       "external_control": {
@@ -360,6 +363,9 @@
             "name": "Expires at"
           }
         }
+      },
+      "calibration_time": {
+        "name": "Calibration time"
       }
     },
     "number": {
@@ -383,6 +389,48 @@
       },
       "charge_target_soc": {
         "name": "Charge target SOC"
+      },
+      "charge_power_limit": {
+        "name": "Charge power cap",
+        "state_attributes": {
+          "set_by": {
+            "name": "Set by"
+          },
+          "set_by_until": {
+            "name": "Valid until"
+          },
+          "ignored_by_group": {
+            "name": "Ignored: set by the group"
+          }
+        }
+      },
+      "discharge_power_limit": {
+        "name": "Discharge power cap",
+        "state_attributes": {
+          "set_by": {
+            "name": "Set by"
+          },
+          "set_by_until": {
+            "name": "Valid until"
+          },
+          "ignored_by_group": {
+            "name": "Ignored: set by the group"
+          }
+        }
+      },
+      "excluded_power": {
+        "name": "Power not to cover",
+        "state_attributes": {
+          "set_by": {
+            "name": "Set by"
+          },
+          "set_by_until": {
+            "name": "Valid until"
+          },
+          "ignored_by_group": {
+            "name": "Ignored: set by the group"
+          }
+        }
       }
     },
     "select": {
@@ -438,6 +486,17 @@
       },
       "reverse_flow": {
         "name": "Reverse flow"
+      },
+      "calibrating": {
+        "name": "Calibrating",
+        "state_attributes": {
+          "since": {
+            "name": "Since"
+          },
+          "batteries": {
+            "name": "Batteries"
+          }
+        }
       }
     },
     "switch": {
@@ -486,6 +545,10 @@
     "member_left_group": {
       "title": "{battery} is no longer controlled by group {group}",
       "description": "The mode of battery {battery} was changed: it no longer follows group {group}, which keeps running without it. To put it back, choose the “Controlled by the group” mode on the battery."
+    },
+    "calibration_stuck": {
+      "title": "Calibration stuck: {battery}",
+      "description": "Battery {battery} has been calibrating its charge level for more than {hours} h. A calibration normally takes a few hours to a day.\n\nCheck that it stays powered, that its charge limit is 100 % and that no power is locked at 0 W. If it continues, contact Zendure support with: model {model}, serial number {sn}, versions {versions}, and the charge level history."
     }
   },
   "selector": {

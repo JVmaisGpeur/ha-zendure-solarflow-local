@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.6.0
+
+Trois commandes de puissance et un capteur de calibration. Sans réglage, la batterie fonctionne exactement comme en v1.5.0.
+
+### Nouveautés
+- **Plafond de charge** (`charge_power_limit`) et **plafond de décharge** (`discharge_power_limit`) : limitent la puissance que la régulation peut demander, sans changer de mode. 0 W = aucune charge / aucune décharge ; valeur maximale = aucun plafond. Sur un groupe, le plafond vaut pour le total, réparti selon la stratégie. Ils s'appliquent dans tous les modes qui commandent une puissance, manuel compris.
+- **Puissance à ne pas couvrir** (`excluded_power`) : en décharge, la batterie ne fournit jamais plus que la consommation de la maison moins cette puissance (ex. chauffe-eau en marche). Consommation = soutirage + décharge + solaire (0 sans capteur solaire). Ne touche ni à la charge sur le surplus, ni à la charge réseau.
+- Ces trois valeurs restent dans Home Assistant et ne sont **jamais écrites dans la batterie**. Valeur manuelle gardée au redémarrage ; valeur posée par un pilote externe qui déclare la clé remise à « sans effet » à l'expiration ou au retrait de sa déclaration, même pendant un arrêt de Home Assistant.
+- **État de la régulation** : nouvelles valeurs `charge_capped`, `discharge_capped`, `load_excluded`.
+- **Calibration en cours** (`calibrating`, capteur binaire, d'après `socStatus`) sur chaque batterie qui le fournit, et sur le groupe (liste des batteries en attribut). **Durée de calibration** (`calibration_time`, `batCalTime`, diagnostic, désactivé par défaut, lu seulement). Alerte dans Réparations si une calibration dure plus de 72 h.
+- **Carte** :
+  - état détaillé (« Charge plafonnée à 600 W », « Décharge bloquée », « 2 400 W non couverts par la batterie »), avec le nom du pilote s'il y en a un ;
+  - les trois commandes n'apparaissent que lorsqu'elles ont un effet (pastilles, un appui ouvre l'entité) ;
+  - badge « Calibration en cours » avec une aide « i », sur la batterie et dans les lignes du groupe.
+- Contrat d'interface : clés `charge_power_limit`, `discharge_power_limit`, `excluded_power` acceptées dans `controlled_keys` ; README, section « Pilotage externe » complétée.
+
 ## v1.5.0
 
 ### Nouveautés

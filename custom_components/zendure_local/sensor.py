@@ -155,6 +155,15 @@ SENSORS: tuple[ZendureSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=_prop("faultLevel"),
     ),
+    # Z3 : lu seulement, jamais écrit (Zendure déconseille de le modifier)
+    ZendureSensorDescription(
+        key="calibration_time",
+        translation_key="calibration_time",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=_prop("batCalTime"),
+    ),
 )
 
 PACK_SENSORS: tuple[ZendureSensorDescription, ...] = (
