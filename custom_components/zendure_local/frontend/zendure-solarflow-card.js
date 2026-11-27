@@ -12,7 +12,9 @@
  *   show_history: true    # courbe des dernières 24 h
  *   show_flow: true       # schéma des flux d'énergie
  */
-const CARD_VERSION = "1.6.0";
+const CARD_VERSION = "1.7.0";
+// Blocs qui ont un bouton « i » (charte de l'écosystème) ; chaque clé a son texte en français et en anglais
+const HELP_KEYS = ["battery", "hist", "members", "stats", "chips", "stock", "charged24", "flows", "control", "manual", "gridcharge", "soc"];
 const DOMAIN = "zendure_local";
 
 const I18N = {
@@ -42,6 +44,23 @@ const I18N = {
     modes: { off: "Arrêt", manual: "Puissance manuelle", smart: "Couplage intelligent",
              smart_discharge: "Décharge intelligente", smart_charge: "Charge intelligente", solar: "Stocker le solaire", grid_charge: "Charge réseau",
              group: "Pilotée par le groupe" },
+    statsTitle: "Statistiques",
+    stockLbl: "Stock : {p} % solaire", estimated: "estimé",
+    charged24Lbl: "Chargé sur 24 h : {g} réseau · {s} solaire",
+    help: {
+      battery: "Le niveau de charge de la batterie (ou du groupe) et l'énergie qu'elle contient. L'étiquette en haut à droite dit si elle charge, décharge ou attend. Touche la batterie pour voir l'historique du niveau.",
+      hist: "Le niveau de charge des 24 dernières heures, relu dans l'historique de Home Assistant.",
+      members: "Les batteries du groupe, avec leur niveau, leur puissance et leurs limites. Une batterie injoignable ou en défaut sort de la répartition jusqu'à son retour.",
+      stats: "Disponible : l'énergie au-dessus du niveau minimum. Capacité : la capacité utile des packs. Cycles : l'énergie rendue divisée par la capacité. Rendement : l'énergie rendue divisée par l'énergie entrée, mesurées dans la batterie (sans les pertes côté prise).",
+      chips: "La température de la batterie, et ce que fait la régulation en ce moment : charge, décharge, plafond atteint, niveau minimum…",
+      stock: "La part de l'énergie dans la batterie venue du solaire. Elle monte quand le surplus charge la batterie, baisse quand le réseau la charge. Au départ, l'origine est inconnue et comptée moitié-moitié : la ligne porte « estimé » tant que ce stock de départ pèse plus de 10 %.",
+      charged24: "L'énergie chargée ces 24 dernières heures, côté prise, selon son origine. Une charge pendant que la maison prend au réseau est comptée réseau, à hauteur de ce qui est pris.",
+      flows: "Les échanges d'énergie en ce moment entre le réseau, le solaire, la batterie, la maison et les appareils choisis. Touche un cercle pour voir son historique.",
+      control: "Le mode choisit le comportement de la batterie. Les modes intelligents suivent le compteur pour garder la maison près de 0 W : ils ont besoin d'un capteur de compteur.",
+      manual: "Une puissance fixe, en charge ou en décharge, envoyée à la batterie. Elle reste en place jusqu'au prochain changement.",
+      gridcharge: "Charge sur le réseau sans dépasser la limite de soutirage au compteur, jusqu'au SOC cible de charge. Utile en heures creuses.",
+      soc: "Le minimum protège la batterie : elle ne se décharge pas en dessous. Le maximum limite la charge. Ces deux niveaux sont enregistrés dans la batterie elle-même.",
+    },
   },
   en: {
     grid: "Grid", home: "Home", battery: "Battery", solar: "Solar",
@@ -69,6 +88,23 @@ const I18N = {
     modes: { off: "Off", manual: "Manual power", smart: "Smart matching",
              smart_discharge: "Smart discharge", smart_charge: "Smart charge", solar: "Store solar", grid_charge: "Grid charge",
              group: "Controlled by the group" },
+    statsTitle: "Statistics",
+    stockLbl: "Stored energy: {p} % solar", estimated: "estimated",
+    charged24Lbl: "Charged in 24 h: {g} grid · {s} solar",
+    help: {
+      battery: "The charge level of the battery (or group) and the energy it holds. The label at the top right says whether it is charging, discharging or idle. Tap the battery to see the level history.",
+      hist: "The charge level over the last 24 hours, read from the Home Assistant history.",
+      members: "The batteries of the group, with their level, power and limits. A battery that is unreachable or in fault leaves the dispatch until it is back.",
+      stats: "Available: the energy above the minimum level. Capacity: the usable capacity of the packs. Cycles: the energy delivered divided by the capacity. Efficiency: the energy delivered divided by the energy put in, measured inside the battery (without the losses at the plug).",
+      chips: "The battery temperature, and what the regulation is doing right now: charging, discharging, cap reached, minimum level…",
+      stock: "The share of the energy in the battery that came from solar. It rises when surplus charges the battery and drops when the grid charges it. At first the origin is unknown and counted half and half: the line says “estimated” while that initial stock weighs more than 10 %.",
+      charged24: "The energy charged over the last 24 hours, at the plug, by origin. Charging while the house draws from the grid is counted as grid, up to what is drawn.",
+      flows: "The energy flowing right now between the grid, solar, the battery, the house and the chosen devices. Tap a circle to see its history.",
+      control: "The mode sets how the battery behaves. The smart modes follow the meter to keep the house near 0 W: they need a grid meter sensor.",
+      manual: "A fixed power, charging or discharging, sent to the battery. It stays until the next change.",
+      gridcharge: "Charges from the grid without exceeding the import limit at the meter, up to the charge target SOC. Useful during off-peak hours.",
+      soc: "The minimum protects the battery: it does not discharge below it. The maximum limits charging. Both levels are stored in the battery itself.",
+    },
   },
 };
 
@@ -336,15 +372,19 @@ class ZendureSolarflowCard extends HTMLElement {
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     const consumers = (cfg.consumers || []).slice(0, 5).map((c) => (typeof c === "string" ? { entity: c } : c));
     this._consumers = consumers;
+    // Bouton « i » et son texte (affiché au clic)
+    const ib = (k) => `<button class="ib" data-help="${k}" title="i">i</button>`;
+    const hp = (k) => `<div class="help" data-for="${k}">${t.help[k]}</div>`;
 
     this.shadowRoot.innerHTML = `
       <style>${STYLE}</style>
       <ha-card id="card">
         <!-- ======================= Batterie ======================= -->
         <div class="head">
-          <div class="title" id="name"></div>
+          <div class="title"><span id="name"></span>${ib("battery")}</div>
           <div class="pill" id="state"><i></i><span></span></div>
         </div>
+        ${hp("battery")}
         <div class="calib" id="calib"><ha-icon icon="mdi:battery-sync"></ha-icon><span id="calib-txt"></span>
           <button class="info" id="calib-i" title="i">i</button></div>
         <div class="calib-help" id="calib-help"></div>
@@ -379,12 +419,16 @@ class ZendureSolarflowCard extends HTMLElement {
 
         ${cfg.show_history ? `
         <div class="hist" id="hist">
-          <div class="hrow"><span>${t.last24}</span><b id="h-now"></b></div>
+          <div class="hrow"><span>${t.last24}${ib("hist")}</span><b id="h-now"></b></div>
+          ${hp("hist")}
           <svg id="spark" viewBox="0 0 300 48" preserveAspectRatio="none"></svg>
         </div>` : ""}
 
         <div class="members" id="members"></div>
+        ${hp("members")}
 
+        <div class="irow"><span>${t.statsTitle}</span>${ib("stats")}</div>
+        ${hp("stats")}
         <div class="tiles4">
           <div class="stat" id="s-avail"><small>${t.available}</small><b id="v-avail">—</b></div>
           <div class="stat" id="s-cap"><small>${t.capacity}</small><b id="v-cap">—</b></div>
@@ -394,11 +438,20 @@ class ZendureSolarflowCard extends HTMLElement {
         <div class="chips">
           <div class="chip" id="c-temp"><ha-icon icon="mdi:thermometer"></ha-icon>${t.temp} <b id="v-temp">—</b></div>
           <div class="chip" id="c-status"><ha-icon icon="mdi:information-outline"></ha-icon>${t.statusLbl} <b id="v-status">—</b></div>
+          ${ib("chips")}
+        </div>
+        ${hp("chips")}
+        <div class="prov" id="prov">
+          <div class="pl" id="p-stock"><span id="stock-txt">—</span>${ib("stock")}</div>
+          ${hp("stock")}
+          <div class="pl" id="p-c24"><span id="c24-txt">—</span>${ib("charged24")}</div>
+          ${hp("charged24")}
         </div>
 
         <!-- ======================= Flux ======================= -->
         ${cfg.show_flow ? `
-        <div class="sect"><ha-icon icon="mdi:transmission-tower"></ha-icon>${t.flows}</div>
+        <div class="sect"><ha-icon icon="mdi:transmission-tower"></ha-icon>${t.flows}${ib("flows")}</div>
+        ${hp("flows")}
         <div class="flowbox">
           <div class="flow" id="flow">
             <svg id="flowsvg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet"></svg>
@@ -407,7 +460,8 @@ class ZendureSolarflowCard extends HTMLElement {
         </div>` : ""}
 
         <!-- ======================= Pilotage ======================= -->
-        <div class="sect"><ha-icon icon="mdi:tune-vertical-variant"></ha-icon>${t.control}</div>
+        <div class="sect"><ha-icon icon="mdi:tune-vertical-variant"></ha-icon>${t.control}${ib("control")}</div>
+        ${hp("control")}
         <div class="ctrl">
           <div class="crow">
             <div class="cicon"><ha-icon icon="mdi:cog-transfer"></ha-icon></div>
@@ -428,8 +482,9 @@ class ZendureSolarflowCard extends HTMLElement {
           <div class="manual" id="manual">
             <div class="crow">
               <div class="cicon"><ha-icon icon="mdi:hand-back-right-outline"></ha-icon></div>
-              <div><div class="ctitle">${t.manualTitle}</div><div class="csub" id="man-sub">—</div></div>
+              <div><div class="ctitle">${t.manualTitle}${ib("manual")}</div><div class="csub" id="man-sub">—</div></div>
             </div>
+            ${hp("manual")}
             <div class="dirgrid">
               <button class="dir" id="d-charge" data-dir="-1"><ha-icon icon="mdi:battery-arrow-down"></ha-icon><span>${t.manualCharge}</span></button>
               <button class="dir" id="d-dis" data-dir="1"><ha-icon icon="mdi:battery-arrow-up"></ha-icon><span>${t.manualDischarge}</span></button>
@@ -441,8 +496,9 @@ class ZendureSolarflowCard extends HTMLElement {
           <div class="socbox" id="gcbox">
             <div class="crow">
               <div class="cicon"><ha-icon icon="mdi:transmission-tower-import"></ha-icon></div>
-              <div><div class="ctitle">${t.gridCharge}</div><div class="csub warn" id="gc-ignored"></div></div>
+              <div><div class="ctitle">${t.gridCharge}${ib("gridcharge")}</div><div class="csub warn" id="gc-ignored"></div></div>
             </div>
+            ${hp("gridcharge")}
             <div class="socgrid">
               <label class="socin"><span>${t.importLimit}</span>
                 <div class="field"><input type="number" id="in-imp" inputmode="numeric" step="100" min="0" /><em>W</em></div></label>
@@ -453,8 +509,9 @@ class ZendureSolarflowCard extends HTMLElement {
           <div class="socbox" id="socbox">
             <div class="crow">
               <div class="cicon"><ha-icon icon="mdi:battery-sync-outline"></ha-icon></div>
-              <div class="ctitle">${t.socLimits}</div>
+              <div class="ctitle">${t.socLimits}${ib("soc")}</div>
             </div>
+            ${hp("soc")}
             <div class="socgrid">
               <label class="socin"><span>${t.socMin} <small id="rg-min"></small></span>
                 <div class="field"><input type="number" id="in-min" inputmode="numeric" step="1" /><em>%</em></div></label>
@@ -530,7 +587,20 @@ class ZendureSolarflowCard extends HTMLElement {
     }
 
     // Ouvertures « plus d'infos »
-    const mi = (id, fn) => $(id)?.addEventListener("click", () => this._moreInfo(fn()));
+    const mi = (id, fn) => $(id)?.addEventListener("click", (ev) => {
+      if (ev.target.closest?.(".ib")) return; // le bouton « i » n'ouvre pas la fenêtre de l'entité
+      this._moreInfo(fn());
+    });
+    // Boutons « i » : un clic affiche ou masque le texte du bloc
+    if (!this._helpBound) {
+      this._helpBound = true;
+      this.shadowRoot.addEventListener("click", (ev) => {
+        const b = ev.target.closest?.(".ib");
+        if (!b) return;
+        ev.stopPropagation();
+        this.shadowRoot.querySelector(`.help[data-for="${b.dataset.help}"]`)?.classList.toggle("show");
+      });
+    }
     $("calib-i").addEventListener("click", (ev) => { ev.stopPropagation(); $("calib-help").classList.toggle("show"); });
     mi("bat-click", () => this._ents.electric_level);
     mi("state", () => this._ents.operating_mode);
@@ -729,6 +799,7 @@ class ZendureSolarflowCard extends HTMLElement {
     const lang = this._hass?.locale?.language || this._hass?.language || "en";
     $("v-temp").textContent = temp === null ? "—" : `${temp.toLocaleString(lang, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C`;
     $("v-status").textContent = this._regText(this._state("regulation_state"));
+    this._renderProvenance();
     this._renderCaps();
     this._renderCalib();
     $("s-cyc").style.display = this._ents.energy_discharged ? "" : "none";
@@ -791,6 +862,26 @@ class ZendureSolarflowCard extends HTMLElement {
     }
   }
 
+  // v1.7.0 : provenance de l'énergie de charge (stock par origine, chargé sur 24 h)
+  _renderProvenance() {
+    const $ = this._$;
+    const t = this._t;
+    const share = this._val("stored_solar_share");
+    const sg = this._val("stored_energy_grid"), ss = this._val("stored_energy_solar");
+    $("prov").style.display = share === null ? "none" : "";
+    if (share === null) return;
+    // Le stock de départ (origine inconnue) est compté moitié réseau, moitié solaire
+    const init = num(this._state("stored_energy_grid")?.attributes?.initial_share);
+    const total = (sg ?? 0) + (ss ?? 0);
+    const estimated = init !== null && total > 0 && (2 * (init / 100) * (sg ?? 0)) / total > 0.1;
+    $("stock-txt").textContent = t.stockLbl.replace("{p}", Math.round(share)) + (estimated ? ` (${t.estimated})` : "");
+    const kwh = (v) => (v === null ? "—" : `${v.toFixed(2)} kWh`);
+    const g24 = num(this._state("energy_charged_grid")?.attributes?.last_24h);
+    const s24 = num(this._state("energy_charged_solar")?.attributes?.last_24h);
+    $("p-c24").style.display = g24 === null && s24 === null ? "none" : "";
+    $("c24-txt").textContent = t.charged24Lbl.replace("{g}", kwh(g24)).replace("{s}", kwh(s24));
+  }
+
   _renderMembers() {
     const box = this._$("members");
     const list = this._isGroup ? this._state("operating_mode")?.attributes?.batteries || [] : [];
@@ -816,7 +907,7 @@ class ZendureSolarflowCard extends HTMLElement {
         <div class="mpow">${p === null ? "—" : (p > 5 ? "↓ " : p < -5 ? "↑ " : "") + fmtW(p)}</div>
         <div class="mstate">${state}${range}</div></div>`;
     });
-    const html = `<div class="mhead"><span>${t.batteries}</span><b>${t.activeBatteries} : ${this._val("active_batteries") ?? "—"} / ${list.length}</b></div>${rows.join("")}`;
+    const html = `<div class="mhead"><span>${t.batteries}<button class="ib" data-help="members" title="i">i</button></span><b>${t.activeBatteries} : ${this._val("active_batteries") ?? "—"} / ${list.length}</b></div>${rows.join("")}`;
     if (html !== this._membersHtml) {
       this._membersHtml = html;
       box.innerHTML = html;
@@ -1077,6 +1168,14 @@ const STYLE = `
     font: italic 700 11px/1 serif; cursor: pointer; padding: 0; }
   .calib-help { display: none; margin: 4px 16px 0; font-size: .78em; opacity: .85; }
   .calib-help.show { display: block; }
+  /* Boutons « i » (v1.7.0) */
+  .ib { width: 17px; height: 17px; margin-left: 6px; border-radius: 50%; border: 1px solid currentColor; background: none;
+    color: var(--z-muted); font: italic 700 10px/1 serif; cursor: pointer; padding: 0; vertical-align: middle; flex: none; }
+  .help { display: none; font-size: .78em; font-weight: 400; line-height: 1.4; color: var(--z-muted); margin: 2px 0 4px; }
+  .help.show { display: block; }
+  .irow { display: flex; align-items: center; font-size: .8em; font-weight: 600; color: var(--z-muted); }
+  .prov { display: flex; flex-direction: column; gap: 4px; }
+  .pl { display: flex; align-items: center; font-size: .82em; color: var(--z-muted); }
   .mcal { color: var(--z-accent, var(--primary-color)); font-weight: 600; }
   .hint.show { display: block; }
   .manual { display: none; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--z-line); }

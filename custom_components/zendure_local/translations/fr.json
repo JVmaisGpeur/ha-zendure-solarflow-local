@@ -317,6 +317,36 @@
       "missing_energy": {
         "name": "Énergie manquante"
       },
+      "energy_charged_grid": {
+        "name": "Énergie chargée depuis le réseau",
+        "state_attributes": {
+          "last_24h": {
+            "name": "24 dernières heures"
+          }
+        }
+      },
+      "energy_charged_solar": {
+        "name": "Énergie chargée depuis le solaire",
+        "state_attributes": {
+          "last_24h": {
+            "name": "24 dernières heures"
+          }
+        }
+      },
+      "stored_energy_grid": {
+        "name": "Stock d'origine réseau",
+        "state_attributes": {
+          "initial_share": {
+            "name": "Part issue du stock de départ"
+          }
+        }
+      },
+      "stored_energy_solar": {
+        "name": "Stock d'origine solaire"
+      },
+      "stored_solar_share": {
+        "name": "Part solaire du stock"
+      },
       "max_charge_power": {
         "name": "Puissance de charge max"
       },

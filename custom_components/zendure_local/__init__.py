@@ -38,6 +38,7 @@ from .const import (
 from .coordinator import ZendureCoordinator
 from .external import ExternalControl
 from .group import ZendureGroupHub, group_members, member_coordinator
+from .provenance_ha import ProvenanceKeeper
 from .regulator import ZendureRegulator
 from .services import async_register_services
 
@@ -80,6 +81,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZendureConfigEntry) -> b
     await coordinator.regulator.async_load()
     entry.async_on_unload(coordinator.regulator.shutdown)
     entry.runtime_data = coordinator
+    # Z4 : provenance de l'énergie de charge (avant les entités, qui la lisent)
+    coordinator.provenance = ProvenanceKeeper(hass, coordinator)
+    await coordinator.provenance.async_start()
+    entry.async_on_unload(coordinator.provenance.shutdown)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
     return True

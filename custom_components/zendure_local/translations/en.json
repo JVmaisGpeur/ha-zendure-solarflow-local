@@ -317,6 +317,36 @@
       "missing_energy": {
         "name": "Missing energy"
       },
+      "energy_charged_grid": {
+        "name": "Energy charged from the grid",
+        "state_attributes": {
+          "last_24h": {
+            "name": "Last 24 h"
+          }
+        }
+      },
+      "energy_charged_solar": {
+        "name": "Energy charged from solar",
+        "state_attributes": {
+          "last_24h": {
+            "name": "Last 24 h"
+          }
+        }
+      },
+      "stored_energy_grid": {
+        "name": "Stored energy from the grid",
+        "state_attributes": {
+          "initial_share": {
+            "name": "Share from the initial stock"
+          }
+        }
+      },
+      "stored_energy_solar": {
+        "name": "Stored energy from solar"
+      },
+      "stored_solar_share": {
+        "name": "Solar share of the stored energy"
+      },
       "max_charge_power": {
         "name": "Max charge power"
       },

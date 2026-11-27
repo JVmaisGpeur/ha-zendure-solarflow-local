@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.7.0
+
+D'où vient l'énergie qui charge la batterie, réseau ou solaire, et ce que contient la batterie selon son origine. L'intégration ne fait que compter : aucune consigne ne change, aucune requête ni écriture n'est ajoutée vers la batterie.
+
+### Nouveautés
+- **Énergie chargée depuis le réseau** (`energy_charged_grid`) et **depuis le solaire** (`energy_charged_solar`), côté prise, en kWh, acceptées par le tableau Énergie. Une charge pendant que la maison prend au réseau est comptée réseau, à hauteur de ce qui est pris ; les entrées PV en courant continu sont toujours solaires. Réseau + solaire = énergie entrée côté prise.
+- **Stock d'origine réseau / solaire** (`stored_energy_grid`, `stored_energy_solar`) et **part solaire du stock** (`stored_solar_share`). La somme suit le niveau × la capacité utile : un changement de SOC min (réserve de nuit) ne les fait pas bouger. Énergie présente à l'installation ou apportée par un module ajouté plus tard : comptée moitié-moitié, suivie par l'attribut `initial_share`.
+- Sur chaque batterie et sur chaque groupe (somme des batteries ; le soutirage du groupe est partagé au prorata de la puissance de charge). Valeurs gardées au redémarrage.
+- **Carte** : une ligne « Stock : 62 % solaire » (« estimé » tant que le stock de départ pèse plus de 10 %) et la répartition réseau / solaire de l'énergie chargée sur 24 h.
+- **Carte, boutons « i »** : chaque bloc (batterie, courbe, groupe, statistiques, état, stock, flux, pilotage, puissance manuelle, charge réseau, niveaux de charge) a son explication, en français et en anglais. Un test vérifie que chaque bloc a la sienne dans les deux langues.
+- Contrat d'interface : cinq clés ajoutées (ajout compatible), README français et anglais, section « Provenance de l'énergie de charge ».
+
 ## v1.6.0
 
 Trois commandes de puissance et un capteur de calibration. Sans réglage, la batterie fonctionne exactement comme en v1.5.0.

@@ -245,6 +245,9 @@ A single battery and a group expose the same control entities (**interface versi
 | `charge_power_limit` / `discharge_power_limit` | number | W, maximum value = no cap | ✓ | ✓ (total) |
 | `excluded_power` | number | W, 0 = no effect | ✓ | ✓ |
 | `calibrating` | binary_sensor | `batteries` attribute on a group | ✓ (if `socStatus`) | ✓ |
+| `energy_charged_grid` / `energy_charged_solar` | sensor | kWh, total increasing; `last_24h` attribute | ✓ | ✓ (sum) |
+| `stored_energy_grid` / `stored_energy_solar` | sensor | kWh in the battery; `initial_share` attribute (%) on `stored_energy_grid` | ✓ | ✓ (sum) |
+| `stored_solar_share` | sensor | % | ✓ | ✓ |
 | `strategy` | select | `simultaneous`, `soc_balance`, `priority` | — | ✓ |
 | `active_batteries` | sensor | count | — | ✓ |
 
@@ -302,7 +305,19 @@ data:
 - The integration never interferes with a calibration: the device runs it alone. According to Zendure support, it happens after about 30 days without a full charge; for it to complete, keep the battery powered, its charge limit at 100 %, and do not lock its power at 0 W.
 - A calibration lasting more than **72 h** raises an alert in **Repairs**, with the details to give Zendure support.
 
-**Detection by a controller**: by the presence of the entities (device + `translation_key`), not by version number. The keys `charge_power_limit`, `discharge_power_limit`, `excluded_power`, `calibrating` and `calibration_time` will not change anymore.
+#### Origin of the charged energy (v1.7.0)
+
+Each kWh that goes into the battery is attributed to the grid or to solar, at each battery reading. The integration only counts: no setpoint changes, no request or write is added.
+
+- **Rule**: grid = min(battery AC input, grid import at the meter); solar = the rest. Solar serves the home first: a 1,500 W charge with 400 W imported counts 400 W grid and 1,100 W solar. DC PV inputs (on models that have them) are always solar. Without a meter sensor, all AC charging counts as grid.
+- **Charged energy** (`energy_charged_grid`, `energy_charged_solar`): at the plug, in kWh, total increasing, accepted by the Energy dashboard. Grid + solar = `energy_grid_input` + DC PV. `last_24h` attribute: the kWh of the last 24 hours.
+- **Stocks** (`stored_energy_grid`, `stored_energy_solar`, `stored_solar_share`): the energy in the battery by origin, after charging losses. Their sum follows level × usable capacity (not `available_energy`): changing the minimum SOC does not move them. When discharging, both drop in the same proportion.
+- **Initial stock**: the energy already there at installation, or brought by a module added later, has an unknown origin and is counted half grid, half solar. The `initial_share` attribute (%) of `stored_energy_grid` tells how much of that stock still comes from it.
+- **Group**: the group's grid import is shared between its batteries in proportion to their charging power; the group values are the sum of its batteries.
+- **Use by a controller**: multiplying the grid energy charged by the current price gives the cost of charging; making that cost follow the changes of `stored_energy_grid` gives an average price per stored kWh. Any price and any decision stay with the controller. Suggested time step: live, or the 5-minute statistics (hourly statistics mix peak and off-peak hours when off-peak starts on the half hour).
+- Values survive a Home Assistant restart.
+
+**Detection by a controller**: by the presence of the entities (device + `translation_key`), not by version number. The keys `charge_power_limit`, `discharge_power_limit`, `excluded_power`, `calibrating`, `calibration_time`, `energy_charged_grid`, `energy_charged_solar`, `stored_energy_grid`, `stored_energy_solar` and `stored_solar_share` will not change anymore.
 
 ## Technical details
 

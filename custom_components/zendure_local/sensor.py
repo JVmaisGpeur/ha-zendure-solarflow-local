@@ -259,11 +259,31 @@ GROUP_SENSORS: tuple[ZendureTargetSensorDescription, ...] = (
 )
 
 
+# Z4 (v1.7.0) : provenance de l'énergie de charge, sur une batterie et sur un groupe
+KWH_TOTAL = dict(
+    native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+    device_class=SensorDeviceClass.ENERGY,
+    state_class=SensorStateClass.TOTAL_INCREASING,
+    suggested_display_precision=2,
+)
+PROVENANCE_SENSORS: tuple[SensorEntityDescription, ...] = (
+    SensorEntityDescription(key="energy_charged_grid", translation_key="energy_charged_grid", **KWH_TOTAL),
+    SensorEntityDescription(key="energy_charged_solar", translation_key="energy_charged_solar", **KWH_TOTAL),
+    SensorEntityDescription(key="stored_energy_grid", translation_key="stored_energy_grid", **KWH),
+    SensorEntityDescription(key="stored_energy_solar", translation_key="stored_energy_solar", **KWH),
+    SensorEntityDescription(
+        key="stored_solar_share", translation_key="stored_solar_share", native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT, suggested_display_precision=0,
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ZendureConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator = entry.runtime_data
     common: list[SensorEntity] = [ZendureTargetSensor(coordinator, d) for d in TARGET_SENSORS]
+    common += [ZendureProvenanceSensor(coordinator, d) for d in PROVENANCE_SENSORS]
     common.append(ZendureRegulationStateSensor(coordinator))
     common.append(ZendureExternalControlSensor(coordinator))
     common += [ZendureTuningSensor(coordinator, *d) for d in TUNING_SENSORS]
@@ -359,6 +379,41 @@ class ZendureEnergySensor(ZendureEntity, RestoreSensor):
     @property
     def native_value(self) -> float:
         return round(self._total, 3)
+
+
+class ZendureProvenanceSensor(ZendureEntity, SensorEntity):
+    """Z4 : énergie chargée par origine et stock par origine (lecture seule)."""
+
+    def __init__(self, coordinator, description: SensorEntityDescription) -> None:
+        super().__init__(coordinator, description.key)
+        self.entity_description = description
+
+    def _values(self) -> dict[str, Any]:
+        if self.is_group:
+            from .provenance_ha import group_values
+
+            return group_values(self.coordinator)
+        keeper = getattr(self.coordinator, "provenance", None)
+        return keeper.values() if keeper is not None else {}
+
+    @property
+    def native_value(self) -> float | None:
+        v = self._values().get(self.entity_description.key)
+        if v is None:
+            return None
+        return round(v, 1 if self.entity_description.key == "stored_solar_share" else 3)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        key = self.entity_description.key
+        values = self._values()
+        if key == "stored_energy_grid":
+            share = values.get("initial_share")
+            return {"initial_share": None if share is None else round(share, 1)}
+        if key in ("energy_charged_grid", "energy_charged_solar"):
+            v = values.get("charged_24h_grid" if key == "energy_charged_grid" else "charged_24h_solar")
+            return {"last_24h": None if v is None else round(v, 3)}
+        return None
 
 
 class ZendureTuningSensor(ZendureEntity, SensorEntity):

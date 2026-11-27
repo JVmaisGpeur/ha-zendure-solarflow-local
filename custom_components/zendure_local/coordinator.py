@@ -82,6 +82,7 @@ class ZendureCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._resending = False
         self.lost_commands = 0  # consignes absentes à la relecture (diagnostic)
         self.regulator = None  # ZendureRegulator, créé dans __init__.py
+        self.provenance = None  # ProvenanceKeeper (Z4), créé dans __init__.py
         self.last_read: float = 0.0  # instant (monotonic) de la dernière lecture réussie
         # Hystérésis du SOC cible de charge : vrai = cible atteinte, on attend cible − 3 points
         self.target_hold = False

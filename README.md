@@ -245,6 +245,9 @@ Une batterie seule et un groupe exposent les mêmes entités de pilotage (**vers
 | `charge_power_limit` / `discharge_power_limit` | number | W, valeur maximale = sans plafond | ✓ | ✓ (total) |
 | `excluded_power` | number | W, 0 = sans effet | ✓ | ✓ |
 | `calibrating` | binary_sensor | attribut `batteries` sur un groupe | ✓ (si `socStatus`) | ✓ |
+| `energy_charged_grid` / `energy_charged_solar` | sensor | kWh, total croissant ; attribut `last_24h` | ✓ | ✓ (somme) |
+| `stored_energy_grid` / `stored_energy_solar` | sensor | kWh dans la batterie ; attribut `initial_share` (%) sur `stored_energy_grid` | ✓ | ✓ (somme) |
+| `stored_solar_share` | sensor | % | ✓ | ✓ |
 | `strategy` | select | `simultaneous`, `soc_balance`, `priority` | — | ✓ |
 | `active_batteries` | sensor | nombre | — | ✓ |
 
@@ -302,7 +305,19 @@ data:
 - L'intégration ne touche pas à une calibration : l'appareil la mène seul. Selon le support Zendure, elle a lieu après environ 30 jours sans charge complète ; pour qu'elle aboutisse, laisser la batterie sous tension, sa limite de charge à 100 %, et ne pas bloquer sa puissance à 0 W.
 - Une calibration qui dure plus de **72 h** déclenche une alerte dans **Réparations**, avec les informations à donner au support Zendure.
 
-**Détection par un pilote** : par la présence des entités (appareil + `translation_key`), pas par le numéro de version. Les clés `charge_power_limit`, `discharge_power_limit`, `excluded_power`, `calibrating` et `calibration_time` ne changeront plus.
+#### Provenance de l'énergie de charge (v1.7.0)
+
+Chaque kWh qui entre dans la batterie est attribué au réseau ou au solaire, à chaque lecture de la batterie. L'intégration ne fait que compter : aucune consigne ne change, aucune requête ni écriture n'est ajoutée.
+
+- **Règle** : réseau = min(entrée AC de la batterie, soutirage au compteur) ; solaire = le reste. Le solaire sert d'abord la maison : une charge de 1 500 W avec 400 W de soutirage compte 400 W réseau et 1 100 W solaire. Les entrées PV en courant continu (modèles qui en ont) sont toujours solaires. Sans capteur de compteur, toute la charge AC est comptée réseau.
+- **Énergies chargées** (`energy_charged_grid`, `energy_charged_solar`) : côté prise, en kWh, total croissant, acceptées par le tableau Énergie. Réseau + solaire = `energy_grid_input` + PV en continu. Attribut `last_24h` : les kWh des 24 dernières heures.
+- **Stocks** (`stored_energy_grid`, `stored_energy_solar`, `stored_solar_share`) : l'énergie dans la batterie selon son origine, après les pertes de charge. Leur somme suit le niveau × la capacité utile (et non `available_energy`) : changer le SOC min ne les fait pas bouger. En décharge, les deux baissent dans la même proportion.
+- **Stock de départ** : l'énergie déjà présente à l'installation, ou apportée par un module ajouté plus tard, est d'origine inconnue et comptée moitié réseau, moitié solaire. L'attribut `initial_share` (%) de `stored_energy_grid` dit quelle part de ce stock en vient encore.
+- **Groupe** : le soutirage du groupe est partagé entre ses batteries au prorata de leur puissance de charge ; les valeurs du groupe sont la somme de ses batteries.
+- **Usage par un pilote** : multiplier l'énergie réseau chargée par le prix du moment donne le coût de la charge ; faire suivre ce coût aux variations de `stored_energy_grid` donne un prix moyen du kWh stocké. Tout prix et toute décision restent chez le pilote. Pas de temps conseillé : le fil de l'eau ou les statistiques à 5 minutes (les statistiques horaires mélangent heures pleines et creuses quand les heures creuses commencent à la demi-heure).
+- Les valeurs sont gardées au redémarrage de Home Assistant.
+
+**Détection par un pilote** : par la présence des entités (appareil + `translation_key`), pas par le numéro de version. Les clés `charge_power_limit`, `discharge_power_limit`, `excluded_power`, `calibrating`, `calibration_time`, `energy_charged_grid`, `energy_charged_solar`, `stored_energy_grid`, `stored_energy_solar` et `stored_solar_share` ne changeront plus.
 
 ## Fonctionnement technique
 

@@ -15,6 +15,12 @@ BOTH = {
     "discharge_power_limit": "number",
     "excluded_power": "number",
     "calibrating": "binary_sensor",
+    # v1.7.0 : provenance de l'énergie de charge
+    "energy_charged_grid": "sensor",
+    "energy_charged_solar": "sensor",
+    "stored_energy_grid": "sensor",
+    "stored_energy_solar": "sensor",
+    "stored_solar_share": "sensor",
 }
 GROUP_ONLY = {"strategy": "select", "active_batteries": "sensor"}
 
