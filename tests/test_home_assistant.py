@@ -7,6 +7,7 @@ Ignoré si Home Assistant et pytest-homeassistant-custom-component ne sont pas i
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -58,7 +59,7 @@ async def _fake_write(self, sn: str, properties: dict) -> None:
 
 
 @pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(recorder_mock, enable_custom_integrations, mock_async_zeroconf, hass):
+def auto_enable_custom_integrations(caplog, recorder_mock, enable_custom_integrations, mock_async_zeroconf, hass):
     """L'historique (recorder) doit être prêt avant Home Assistant ; zeroconf est simulé.
 
     L'outil de test charge son propre paquet custom_components : on y ajoute le nôtre.
@@ -78,6 +79,13 @@ def auto_enable_custom_integrations(recorder_mock, enable_custom_integrations, m
         patch("custom_components.zendure_local.config_flow.async_find_batteries", AsyncMock(return_value=[])),
     ):
         yield
+    _aucune_erreur(caplog)
+
+def _aucune_erreur(caplog) -> None:
+    """Une erreur consignée (même attrapée) fait échouer le test."""
+    erreurs = [f"{r.name}: {r.getMessage()}" for r in caplog.get_records("call") if r.levelno >= logging.ERROR]
+    assert not erreurs, erreurs
+
 
 
 def _ecran(r, step_id: str | None = None):
