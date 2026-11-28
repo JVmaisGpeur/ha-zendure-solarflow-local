@@ -135,7 +135,7 @@ async def test_batterie_assistant_et_chargement(hass: HomeAssistant) -> None:
     soc = [e for u, e in ents.items() if u.startswith("TESTSN0001_") and "level" in u.lower()]
     assert soc, sorted(ents)
     etat = hass.states.get(soc[0])
-    assert etat is not None and etat.state == "55", etat
+    assert etat is not None and float(etat.state) == 55, etat
     assert hass.services.has_service(DOMAIN, "set_external_control")
 
     # Même batterie une seconde fois : refusée
